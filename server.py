@@ -1,93 +1,231 @@
 from flask import Flask, request, jsonify
-from models.quest import quests_collection  # import the collection
+from datetime import datetime
+from models.quest import quests_collection, users_collection
+from bson import ObjectId
 
 app = Flask(__name__)
 
-# Define your "Secret Key" (In real apps, this is hidden in an .env file)
-SECRET_TOKEN = "effortree-secret-123"
+# -----------------------------
+# QUEST ROUTES
+# -----------------------------
 
+# CREATE a quest
 @app.route("/quests", methods=["POST"])
 def create_quest():
-    # --- PART 1: CHECK THE SECRET TOKEN (Authorization) ---
-    # Look for the 'Authorization' header in Postman
-    auth_header = request.headers.get("Authorization")
-    
-    # If the token is missing or wrong, return the 403 error from your screenshot
-    if auth_header != f"Bearer {SECRET_TOKEN}":
-        return jsonify({
-            "code": 10306,
-            "message": "You do not have permission to access users.",
-            "detail": "This function is only accessible to admins."
-        }), 403  # This matches your screenshot's error message!
+    data = request.get_json()
 
-    # --- PART 2: LINK TO USER ---
+    quest_id = str(ObjectId())  # generate unique questId
+    created_at = datetime.utcnow().strftime("%Y-%m-%d")  # ISO date
+
+    quest_doc = {
+        "questId": quest_id,
+        "userId": data.get("userId"),
+        "title": data.get("title"),
+        "subject": data.get("subject"),
+        "topic": data.get("topic"),
+        "suggested_minutes": data.get("suggested_minutes"),
+        "deadline": data.get("deadline"),
+        "visibility": data.get("visibility"),
+        "status": data.get("status", "prepare"),  # prepare | active | done
+        "created_at": created_at
+    }
+
+    quests_collection.insert_one(quest_doc)
+    quest_doc.pop("_id", None)
+
+    return jsonify(quest_doc), 201
+
+# GET quests for a specific user
+@app.route("/quests", methods=["GET"])
+def get_user_quests():
     data = request.get_json()
     
-    # Check if a nickname was provided in the JSON body
-    if "nickname" not in data:
-        return jsonify({"error": "A nickname is required to link this quest to a user"}), 400
+    if not data or "userId" not in data:
+        return jsonify({"error": "userId is required in the request body"}), 400
+        
+    user_id = data.get("userId")
 
-    # Insert the data (which now includes the nickname) into MongoDB
-    quests_collection.insert_one(data)
-    
-    return jsonify({
-        "message": f"Quest added and linked to {data['nickname']}!",
-        "status": "success"
-    }), 201
+    user_quests = list(quests_collection.find({"userId": user_id}, {"_id": 0}))
 
-# READ all quests
-@app.route("/quests", methods=["GET"])
-def get_quests():
-    quests = list(quests_collection.find({}, {"_id": 0}))
-    return jsonify(quests)
+    for quest in user_quests:
+        for key in list(quest.keys()):
+            if quest[key] is None:
+                quest.pop(key)
 
-# UPDATE a quest (PATCH)
+    return jsonify(user_quests), 200
+
+# UPDATE quest info
 @app.route("/quests", methods=["PATCH"])
 def update_quest():
-    auth_header = request.headers.get("Authorization")
-    if auth_header != f"Bearer {SECRET_TOKEN}":
-        return jsonify({"message": "Forbidden"}), 403
-
     data = request.get_json()
-    title = data.get("title") # We find the quest by its title
-    
-    # Update the description and difficulty in MongoDB
-    quests_collection.update_one(
-        {"title": title}, 
-        {"$set": {"description": data.get("description"), "difficulty": data.get("difficulty")}}
+
+    quest_id = data.get("questId")
+    user_id = data.get("userId")
+
+    if not quest_id or not user_id:
+        return jsonify({"error": "userId and questId are required"}), 400
+
+    update_fields = {}
+    for field in ["title", "description", "difficulty"]:
+        if field in data:
+            update_fields[field] = data[field]
+
+    if not update_fields:
+        return jsonify({"error": "No fields to update"}), 400
+
+    result = quests_collection.update_one(
+        {"userId": user_id, "questId": quest_id},
+        {"$set": update_fields}
     )
-    return jsonify({"message": "Quest updated successfully!"})
+
+    if result.matched_count == 0:
+        return jsonify({"error": "Quest not found"}), 404
+
+    return jsonify({"message": "Quest updated successfully!"}), 200
+
+
+# CHANGE quest status
+@app.route("/quests/status", methods=["PATCH"])
+def change_quest_status():
+    data = request.get_json()
+
+    user_id = data.get("userId")
+    quest_id = data.get("questId")
+    status = data.get("status")
+
+    if not user_id or not quest_id or not status:
+        return jsonify({"error": "userId, questId, and status are required"}), 400
+
+    if status not in ["prepare", "active", "done"]:
+        return jsonify({"error": "Invalid status"}), 400
+
+    result = quests_collection.update_one(
+        {"userId": user_id, "questId": quest_id},
+        {"$set": {"status": status}}
+    )
+
+    if result.matched_count == 0:
+        return jsonify({"error": "Quest not found"}), 404
+
+    return jsonify({
+        "userId": user_id,
+        "questId": quest_id,
+        "status": status
+    }), 200
 
 # DELETE a quest
-@app.route("/quests", methods=["DELETE"])
+@app.route("/quests", methods=["DELETE"]) # Removed <quest_id> from the URL
 def delete_quest():
-    auth_header = request.headers.get("Authorization")
-    if auth_header != f"Bearer {SECRET_TOKEN}":
-        return jsonify({"message": "Forbidden"}), 403
-
-    data = request.get_json()
-    title = data.get("title")
     
-    quests_collection.delete_one({"title": title})
-    return jsonify({"message": "Quest deleted successfully!"})
-
-# --- USER ROUTES ---
-
-# CREATE a new user (nickname, birthdate, gender)
-@app.route("/users", methods=["POST"])
-def create_user():
     data = request.get_json()
-    # Matches your requirement: nickname, birthdate, gender
-    from models.quest import users_collection 
-    users_collection.insert_one(data)
-    return jsonify({"message": "User profile created!"}), 201
+    user_id = data.get("userId")
+    quest_id = data.get("questId")
 
-# READ all users (The list of "Minsu", "Aiperi", etc.)
-@app.route("/users", methods=["GET"])
-def get_users():
-    from models.quest import users_collection
-    users = list(users_collection.find({}, {"_id": 0}))
-    return jsonify(users)
+    quest = quests_collection.find_one({"questId": quest_id, "userId": user_id})
+    if not quest:
+        return jsonify({"error": "Quest not found for this user"}), 404
 
+    quests_collection.delete_one({"questId": quest_id, "userId": user_id})
+    remaining_quests = list(quests_collection.find({"userId": user_id}, {"questId": 1, "_id": 0}))
+    
+    remaining_ids = [q["questId"] for q in remaining_quests]
+    if not remaining_ids:
+        remaining_ids = None
+
+    return jsonify({
+        "userId": user_id,
+        "quests": remaining_ids
+    }), 200
+    
+# -----------------------------
+# USER ROUTES
+# -----------------------------
+
+# CREATE a new user
+@app.route("/users", methods=["POST"])
+def register_user():
+    data = request.get_json()
+
+    user_id = data.get("userId")
+    password = data.get("password")
+    email = data.get("email")
+
+    if not user_id or not password or not email:
+        return jsonify({"error": "userId, password, and email are required"}), 400
+
+    if users_collection.find_one({"userId": user_id}):
+        return jsonify({"error": "User already exists"}), 409
+
+    user_doc = {
+        "userId": user_id,
+        "password": password,
+        "email": email,
+        "nickname": None,
+        "role": None,
+        "quests" : None,
+        "created_at": datetime.now().strftime("%Y-%m-%d")
+    }
+
+    users_collection.insert_one(user_doc)
+    user_doc.pop("_id", None)
+
+    return jsonify(user_doc), 201
+
+
+# UPDATE user info
+@app.route("/users", methods=["PATCH"])
+def update_user():
+    data = request.get_json()
+    user_id = data.get("userId")
+
+    if not user_id:
+        return jsonify({"error": "userId is required"}), 400
+
+    update_fields = {}
+    if "nickname" in data:
+        update_fields["nickname"] = data["nickname"]
+    if "role" in data:
+        update_fields["role"] = data["role"]
+
+    if not update_fields:
+        return jsonify({"error": "No fields to update"}), 400
+
+    result = users_collection.update_one(
+        {"userId": user_id},
+        {"$set": update_fields}
+    )
+
+    if result.matched_count == 0:
+        return jsonify({"error": "User not found"}), 404
+
+    user = users_collection.find_one(
+        {"userId": user_id},
+        {"_id": 0, "password": 0, "email": 0}
+    )
+
+    return jsonify(user), 200
+
+
+# DELETE a user
+@app.route("/users", methods=["DELETE"])
+def delete_user():
+    data = request.get_json()
+    user_id = data.get("userId")
+
+    if not user_id:
+        return jsonify({"status": "Failures"}), 400
+
+    user_result = users_collection.delete_one({"userId": user_id})
+    quests_collection.delete_many({"userId": user_id})
+
+    if user_result.deleted_count == 0:
+        return jsonify({"status": "Failure"}), 404
+
+    return jsonify({"status": "Success"}), 200
+
+
+# -----------------------------
+# RUN SERVER
+# -----------------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=True)  # 0.0.0.0 = public access
+    app.run(host="0.0.0.0", port=8000, debug=True)
