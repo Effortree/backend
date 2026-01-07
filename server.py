@@ -1,9 +1,26 @@
 from flask import Flask, request, jsonify
 from datetime import datetime
 from models.quest import quests_collection, users_collection
-from bson import ObjectId
 
 app = Flask(__name__)
+
+def get_next_user_id():
+    counter = users_collection.database.counters.find_one_and_update(
+        {"_id": "userId"},   # separate counter for users
+        {"$inc": {"seq": 1}}, 
+        upsert=True,         # create if missing
+        return_document=True
+    )
+    return counter["seq"]
+
+def get_next_quest_id():
+    counter = quests_collection.database.counters.find_one_and_update(
+        {"_id": "questId"},      # the counter document
+        {"$inc": {"seq": 1}},    # increment seq by 1
+        upsert=True,             # create if missing
+        return_document=True     # return the new document after increment
+    )
+    return counter["seq"]
 
 # -----------------------------
 # QUEST ROUTES
@@ -14,7 +31,7 @@ app = Flask(__name__)
 def create_quest():
     data = request.get_json()
 
-    quest_id = str(ObjectId())  # generate unique questId
+    quest_id = get_next_quest_id()  # generate unique questId
     created_at = datetime.utcnow().strftime("%Y-%m-%d")  # ISO date
 
     quest_doc = {
@@ -84,7 +101,6 @@ def update_quest():
     return jsonify({"message": "Quest updated successfully!"}), 200
 
 
-# CHANGE quest status
 @app.route("/quests/status", methods=["PATCH"])
 def change_quest_status():
     data = request.get_json()
@@ -114,9 +130,8 @@ def change_quest_status():
     }), 200
 
 # DELETE a quest
-@app.route("/quests", methods=["DELETE"]) # Removed <quest_id> from the URL
+@app.route("/quests", methods=["DELETE"])
 def delete_quest():
-    
     data = request.get_json()
     user_id = data.get("userId")
     quest_id = data.get("questId")
@@ -129,8 +144,6 @@ def delete_quest():
     remaining_quests = list(quests_collection.find({"userId": user_id}, {"questId": 1, "_id": 0}))
     
     remaining_ids = [q["questId"] for q in remaining_quests]
-    if not remaining_ids:
-        remaining_ids = None
 
     return jsonify({
         "userId": user_id,
@@ -141,28 +154,22 @@ def delete_quest():
 # USER ROUTES
 # -----------------------------
 
-# CREATE a new user
 @app.route("/users", methods=["POST"])
 def register_user():
     data = request.get_json()
 
-    user_id = data.get("userId")
-    password = data.get("password")
     email = data.get("email")
+    password = data.get("password")
 
-    if not user_id or not password or not email:
-        return jsonify({"error": "userId, password, and email are required"}), 400
+    if not email or not password:
+        return jsonify({"error": "email and password are required"}), 400
 
-    if users_collection.find_one({"userId": user_id}):
-        return jsonify({"error": "User already exists"}), 409
+    user_id = get_next_user_id()
 
     user_doc = {
-        "userId": user_id,
+        "userId": user_id, 
         "password": password,
         "email": email,
-        "nickname": None,
-        "role": None,
-        "quests" : None,
         "created_at": datetime.now().strftime("%Y-%m-%d")
     }
 
@@ -170,7 +177,6 @@ def register_user():
     user_doc.pop("_id", None)
 
     return jsonify(user_doc), 201
-
 
 # UPDATE user info
 @app.route("/users", methods=["PATCH"])
