@@ -25,7 +25,6 @@ def get_next_quest_id():
 # -----------------------------
 # QUEST ROUTES
 # -----------------------------
-
 # CREATE a quest
 @app.route("/quests", methods=["POST"])
 def create_quest():
@@ -39,7 +38,7 @@ def create_quest():
         "userId": data.get("userId"),
         "title": data.get("title"),
         "subject": data.get("subject"),
-        "topic": data.get("topic"),
+        "description": data.get("description"),
         "suggested_minutes": data.get("suggested_minutes"),
         "deadline": data.get("deadline"),
         "visibility": data.get("visibility"),
@@ -55,16 +54,15 @@ def create_quest():
 # GET quests for a specific user
 @app.route("/quests", methods=["GET"])
 def get_user_quests():
-    data = request.get_json()
+    user_id = request.args.get("userId")  # read from URL parameter
+    if not user_id:
+        return jsonify({"error": "userId parameter is required"}), 400
     
-    if not data or "userId" not in data:
-        return jsonify({"error": "userId is required in the request body"}), 400
-        
-    user_id = data.get("userId")
+    user_id = int(user_id)  # convert to number if you are using numeric userId
 
     user_quests = list(quests_collection.find({"userId": user_id}, {"_id": 0}))
-
     for quest in user_quests:
+        # remove None fields
         for key in list(quest.keys()):
             if quest[key] is None:
                 quest.pop(key)
@@ -177,6 +175,26 @@ def register_user():
     user_doc.pop("_id", None)
 
     return jsonify(user_doc), 201
+
+# LOGIN API
+@app.route("/users/login", methods=["POST"])
+def login_user():
+    data = request.get_json()
+    email = data.get("email")
+    password = data.get("password")
+
+    if not email or not password:
+        return jsonify({"error": "email and password are required"}), 400
+
+    user = users_collection.find_one(
+        {"email": email, "password": password},
+        {"_id": 0, "userId": 1}
+    )
+
+    if user:
+        return jsonify({"userId": user["userId"]}), 200
+    else:
+        return jsonify({"userId": None}), 200
 
 # UPDATE user info
 @app.route("/users", methods=["PATCH"])
