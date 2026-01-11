@@ -72,7 +72,7 @@ def create_quest():
         "suggested_minutes": data.get("suggested_minutes"),
         "deadline": data.get("deadline"),
         "visibility": data.get("visibility"),
-        "status": data.get("status", "prepare"),  # prepare | active | done
+        # "status": data.get("status", "prepare"),  # prepare | active | done
         "created_at": created_at
     }
 
