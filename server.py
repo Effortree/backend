@@ -1,7 +1,6 @@
 from flask import Flask, request, jsonify
 from datetime import datetime
-from models.quest import quests_collection, users_collection
-from models.chat import messages_collection
+from models.quest import quests_collection, users_collection, messages_collection
 from flask_cors import CORS
 from pymongo import ReturnDocument
 
