@@ -294,8 +294,6 @@ def send_message():
     if quick_action == "text" and not content:
         return jsonify({"error": "content is required when quickAction is text"}), 400
 
-    # created_at_user = datetime.utcnow().isoformat() + "Z"
-
     seq_id = get_next_message_id()  # e.g., 1001
 
     # USER MESSAGE
