@@ -8,4 +8,5 @@ from config import MONGO_URL
 client = MongoClient(MONGO_URL)  # connect to MongoDB
 db = client['effortee']                             # database
 quests_collection = db['quests']                    # collection
-users_collection = db["users"]                   
+users_collection = db["users"]       
+messages_collection = db['messages']            
