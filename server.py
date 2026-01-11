@@ -3,16 +3,17 @@ from datetime import datetime
 from models.quest import quests_collection, users_collection
 from models.chat import messages_collection
 from flask_cors import CORS
+from pymongo import ReturnDocument
 
 app = Flask(__name__)
 CORS(app)  # allows all origins (quick fix)
 
-def get_next_user_id():
-    counter = users_collection.database.counters.find_one_and_update(
-        {"_id": "userId"},   # separate counter for users
-        {"$inc": {"seq": 1}}, 
-        upsert=True,         # create if missing
-        return_document=True
+def get_next_message_id():
+    counter = messages_collection.database.counters.find_one_and_update(
+        {"_id": "messageId"},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER
     )
     return counter["seq"]
 
