@@ -25,31 +25,31 @@ def get_next_quest_id():
     )
     return counter["seq"]
 
-# def get_next_message_id():
-#     counter = messages_collection.database.counters.find_one_and_update(
-#         {"_id": "messageId"},
-#         {"$inc": {"seq": 1}},
-#         upsert=True,
-#         return_document=True
-#     )
-#     return counter["seq"]
+def get_next_message_id():
+    counter = messages_collection.database.counters.find_one_and_update(
+        {"_id": "messageId"},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=True
+    )
+    return counter["seq"]
 
-# # =========
-# # generate tutor reply (temporary mock)
-# # =========             
-# def generate_tutor_reply(quick_action, content):
-#     if quick_action == "hint":
-#         return "Here is a hint to guide your thinking."
-#     elif quick_action == "example":
-#         return "Here is an example to help you understand."
-#     elif quick_action == "why":
-#         return "Here is the reasoning behind this concept."
-#     elif quick_action == "summary":
-#         return "Here is a short summary."
-#     elif quick_action == "application":
-#         return "Here is how you can apply this concept."
-#     else:  # text
-#         return f"You said: {content}"
+# =========
+# generate tutor reply (temporary mock)
+# =========             
+def generate_tutor_reply(quick_action, content):
+    if quick_action == "hint":
+        return "Here is a hint to guide your thinking."
+    elif quick_action == "example":
+        return "Here is an example to help you understand."
+    elif quick_action == "why":
+        return "Here is the reasoning behind this concept."
+    elif quick_action == "summary":
+        return "Here is a short summary."
+    elif quick_action == "application":
+        return "Here is how you can apply this concept."
+    else:  # text
+        return f"You said: {content}"
 
 
 # -----------------------------
@@ -277,70 +277,78 @@ def delete_user():
 
     return jsonify({"status": "Success"}), 200
 
-# @app.route("/tutors", methods=["POST"])
-# def send_message():
-#     data = request.get_json()
+# ===========
+# TUTORS
+# ===========
+@app.route("/tutors", methods=["POST"])
+def send_message():
+    data = request.get_json()
 
-#     user_id = data.get("userId")
-#     quick_action = data.get("quickAction")
-#     content = data.get("content")
+    user_id = data.get("userId")
+    quick_action = data.get("quickAction")
+    content = data.get("content")
 
-#     if not user_id or not quick_action:
-#         return jsonify({"error": "userId and quickAction are required"}), 400
+    if not user_id or not quick_action:
+        return jsonify({"error": "userId and quickAction are required"}), 400
 
-#     if quick_action == "text" and not content:
-#         return jsonify({"error": "content is required when quickAction is text"}), 400
+    if quick_action == "text" and not content:
+        return jsonify({"error": "content is required when quickAction is text"}), 400
 
-#     created_at_user = datetime.utcnow().isoformat() + "Z"
+    # created_at_user = datetime.utcnow().isoformat() + "Z"
 
-#     # USER MESSAGE
-#     user_message = {
-#         "messageId": get_next_message_id(),
-#         "userId": user_id,
-#         "role": "user",
-#         "content": content,
-#         "createdAt": created_at_user
-#     }
-#     messages_collection.insert_one(user_message)
+    seq_id = get_next_message_id()  # e.g., 1001
 
-#     # ASSISTANT MESSAGE
-#     assistant_content = generate_tutor_reply(quick_action, content)
-#     created_at_assistant = datetime.utcnow().isoformat() + "Z"
+    # USER MESSAGE
+    user_message = {
+    "messageId": f"{seq_id}-U",   # <- here
+    "userId": user_id,
+    "role": "user",
+    "content": content,
+    "createdAt": datetime.utcnow().isoformat() + "Z"
+}
+    messages_collection.insert_one(user_message)
 
-#     assistant_message = {
-#         "messageId": get_next_message_id(),
-#         "userId": user_id,
-#         "role": "assistant",
-#         "content": assistant_content,
-#         "createdAt": created_at_assistant
-#     }
-#     messages_collection.insert_one(assistant_message)
+    # ASSISTANT MESSAGE
+    assistant_content = generate_tutor_reply(quick_action, content)
+    created_at_assistant = datetime.utcnow().isoformat() + "Z"
 
-#     user_message.pop("_id", None)
-#     assistant_message.pop("_id", None)
+    assistant_message = {
+    "messageId": f"{seq_id}-A",   # <- here
+    "userId": user_id,
+    "role": "assistant",
+    "content": assistant_content,
+    "createdAt": datetime.utcnow().isoformat() + "Z"
+}
+    messages_collection.insert_one(assistant_message)
 
-#     return jsonify({
-#         "userMessage": user_message,
-#         "assistantMessage": assistant_message
-#     }), 200
+    user_message.pop("_id", None)
+    assistant_message.pop("_id", None)
 
-# @app.route("/tutors", methods=["GET"])
-# def get_user_messages():
-#     user_id = request.args.get("userId")
+    return jsonify({
+        "userMessage": user_message,
+        "assistantMessage": assistant_message
+    }), 200
 
-#     if not user_id:
-#         return jsonify({"error": "userId parameter is required"}), 400
+# =========
+# GET CONVO FROM A USER
+# ========
+@app.route("/tutors", methods=["GET"])
+def get_user_messages():
+    user_id = request.args.get("userId")
 
-#     user_id = int(user_id)
+    if not user_id:
+        return jsonify({"error": "userId parameter is required"}), 400
 
-#     messages = list(
-#         messages_collection.find(
-#             {"userId": user_id},
-#             {"_id": 0}
-#         ).sort("createdAt", 1)  # SORT BY TIME (ASC)
-#     )
+    user_id = int(user_id)
 
-#     return jsonify(messages), 200
+    messages = list(
+        messages_collection.find(
+            {"userId": user_id},
+            {"_id": 0}
+        ).sort("createdAt", 1)  # SORT BY TIME (ASC)
+    )
+
+    return jsonify(messages), 200
 
 # -----------------------------
 # RUN SERVER
