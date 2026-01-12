@@ -1,8 +1,9 @@
 from flask import Flask, request, jsonify
 from datetime import datetime
-from models.quest import quests_collection, users_collection, messages_collection
+from models.quest import quests_collection, users_collection, messages_collection, pages_collection
 from flask_cors import CORS
 from pymongo import ReturnDocument
+from bson.objectid import ObjectId
 
 app = Flask(__name__)
 CORS(app)  # allows all origins (quick fix)
@@ -33,6 +34,18 @@ def get_next_message_id():
         return_document=True
     )
     return counter["seq"]
+
+def get_next_page_id():
+    counter = pages_collection.database.counters.find_one_and_update(
+        {"_id": "pageId"},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER
+    )
+    return counter["seq"]
+
+def now_iso():
+    return datetime.utcnow().isoformat() + "Z"
 
 # =========
 # generate tutor reply (temporary mock)
@@ -347,6 +360,157 @@ def get_user_messages():
     )
 
     return jsonify(messages), 200
+
+# -----------------------------
+# CREATE a new quick note (page)
+# -----------------------------
+@app.route("/logs", methods=["POST"])
+def create_page():
+    data = request.get_json()
+
+    if not all(k in data for k in ["userId", "content", "type"]):
+        return jsonify({"error": "userId, content, and type are required"}), 400
+
+    page_doc = {
+        "pageId": get_next_page_id(),   # ✅ readable
+        "userId": int(data["userId"]),
+        "type": data["type"],
+        "content": data["content"],
+        "tags": data.get("tags", []),
+        "createdAt": now_iso(),
+        "updatedAt": now_iso()
+    }
+
+    pages_collection.insert_one(page_doc)
+    page_doc.pop("_id", None)
+    return jsonify(page_doc), 201
+
+# -----------------------------
+# UPDATE a page
+# -----------------------------
+@app.route("/logs", methods=["PATCH"])
+def update_page():
+    data = request.get_json()
+
+    page_id = data.get("pageId")
+    user_id = data.get("userId")
+
+    if not page_id or not user_id:
+        return jsonify({"error": "pageId and userId are required"}), 400
+
+    update_fields = {k: data[k] for k in ["content", "tags", "type"] if k in data}
+    update_fields["updatedAt"] = now_iso()
+
+    updated_page = pages_collection.find_one_and_update(
+        {"pageId": page_id, "userId": int(user_id)},
+        {"$set": update_fields},
+        return_document=ReturnDocument.AFTER,
+        projection={"_id": 0}
+    )
+
+    if not updated_page:
+        return jsonify({"error": "Page not found"}), 404
+
+    return jsonify(updated_page), 200
+
+# -----------------------------
+# DELETE a page (quick note)
+# -----------------------------
+@app.route("/logs", methods=["DELETE"])
+def delete_page():
+    page_id = request.args.get("pageId")
+    user_id = request.args.get("userId")
+
+    if not page_id or not user_id:
+        return jsonify({"error": "pageId and userId are required"}), 400
+
+    result = pages_collection.delete_one({
+        "pageId": int(page_id),   # 🔑 THIS is the fix
+        "userId": int(user_id)
+    })
+
+    if result.deleted_count == 0:
+        return jsonify({"message": "Page not found"}), 404
+
+    return jsonify({"message": "Success"}), 200
+
+# -----------------------------
+# GET logs by date (for any date)
+# -----------------------------
+@app.route("/logs", methods=["GET"])
+def get_logs_by_date():
+    user_id = request.args.get("userId")
+    date = request.args.get("date")  # YYYY-MM-DD
+
+    if not user_id or not date:
+        return jsonify({"error": "userId and date are required"}), 400
+
+    logs = list(pages_collection.find(
+        {"userId": int(user_id), "createdAt": {"$regex": f"^{date}"}},
+        {"_id": 0}
+    ))
+
+    return jsonify({"entries": logs}), 200
+
+# -----------------------------
+# GET summary of today's summary (MOCK)
+# -----------------------------
+@app.route("/logs/summary", methods=["GET"])
+def get_today_summary():
+    user_id = request.args.get("userId")
+    if not user_id:
+        return jsonify({"error": "userId is required"}), 400
+
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+
+    today_logs = list(pages_collection.find(
+        {"userId": int(user_id), "createdAt": {"$regex": f"^{today}"}},
+        {"_id": 0}
+    ))
+
+    # MOCK summary
+    summary_text = " ".join(p["content"] for p in today_logs)
+
+    return jsonify({
+        "userId": int(user_id),
+        "date": today,
+        "summary": summary_text,
+        "updatedAt": now_iso(),
+        "createdAt": now_iso()
+    }), 200
+
+# -----------------------------
+# SEARCH / FILTER by tag
+# -----------------------------
+@app.route("/logs/filter", methods=["GET"])
+def search_pages_by_tag():
+    user_id = request.args.get("userId")
+    tag = request.args.get("tag")
+
+    pages = list(pages_collection.find(
+        {"userId": int(user_id), "tags": tag},
+        {"_id": 0}
+    ))
+
+    return jsonify({"entries": pages}), 200
+
+# -----------------------------
+# SEARCH by content keyword
+# -----------------------------
+@app.route("/logs/search", methods=["GET"])
+def search_pages_by_content():
+    user_id = request.args.get("userId")
+    keyword = request.args.get("content")
+
+    pages = list(pages_collection.find(
+        {
+            "userId": int(user_id),
+            "content": {"$regex": keyword, "$options": "i"}
+        },
+        {"_id": 0}
+    ))
+
+    return jsonify({"entries": pages}), 200
 
 # -----------------------------
 # RUN SERVER
