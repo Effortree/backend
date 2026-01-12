@@ -8,41 +8,36 @@ from bson.objectid import ObjectId
 app = Flask(__name__)
 CORS(app)  # allows all origins (quick fix)
 
-def get_next_message_id():
-    counter = messages_collection.database.counters.find_one_and_update(
-        {"_id": "messageId"},
+# -----------------------------
+# Generic counter function
+# -----------------------------
+def get_next_id(counter_name):
+    """
+    Returns the next integer ID for the given counter.
+    counter_name: string, e.g., "userId", "pageId", "questId", "messageId"
+    """
+    counter = users_collection.database.counters.find_one_and_update(
+        {"_id": counter_name},
         {"$inc": {"seq": 1}},
         upsert=True,
         return_document=ReturnDocument.AFTER
     )
     return counter["seq"]
 
-def get_next_quest_id():
-    counter = quests_collection.database.counters.find_one_and_update(
-        {"_id": "questId"},      # the counter document
-        {"$inc": {"seq": 1}},    # increment seq by 1
-        upsert=True,             # create if missing
-        return_document=True     # return the new document after increment
-    )
-    return counter["seq"]
-
-def get_next_message_id():
-    counter = messages_collection.database.counters.find_one_and_update(
-        {"_id": "messageId"},
-        {"$inc": {"seq": 1}},
-        upsert=True,
-        return_document=True
-    )
-    return counter["seq"]
+# -----------------------------
+# Specific helper functions
+# -----------------------------
+def get_next_user_id():
+    return get_next_id("userId")
 
 def get_next_page_id():
-    counter = pages_collection.database.counters.find_one_and_update(
-        {"_id": "pageId"},
-        {"$inc": {"seq": 1}},
-        upsert=True,
-        return_document=ReturnDocument.AFTER
-    )
-    return counter["seq"]
+    return get_next_id("pageId")
+
+def get_next_quest_id():
+    return get_next_id("questId")
+
+def get_next_message_id():
+    return get_next_id("messageId")
 
 def now_iso():
     return datetime.utcnow().isoformat() + "Z"
@@ -194,7 +189,6 @@ def delete_quest():
 # -----------------------------
 # USER ROUTES
 # -----------------------------
-
 @app.route("/users", methods=["POST"])
 def register_user():
     data = request.get_json()
