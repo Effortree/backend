@@ -11,6 +11,9 @@ import config
 app = Flask(__name__)
 CORS(app)  # allows all origins (quick fix)
 
+from analytics import analytics_bp
+app.register_blueprint(analytics_bp)
+
 # -----------------------------
 # Generic counter function
 # -----------------------------
@@ -77,16 +80,25 @@ def create_quest():
     quest_doc = {
         "questId": quest_id,
         "userId": data.get("userId"),
+
         "title": data.get("title"),
         "subject": data.get("subject"),
+        "topic": data.get("topic"),
         "description": data.get("description"),
-        "suggested_minutes": data.get("suggested_minutes"),
-        "deadline": data.get("deadline"),
-        "visibility": data.get("visibility"),
-        "status": "prepare",
-        "created_at": created_at
-    }
 
+        "status": "prepare",
+        "visibility": data.get("visibility", "private"),
+
+        "suggested_minutes": data.get("suggested_minutes", 0),
+        "deadline": data.get("deadline"),
+
+        #ANALYTICS
+        "spent_logs": [],
+
+        "created_at": datetime.utcnow().strftime("%Y-%m-%d"),
+        "updated_at": datetime.utcnow().strftime("%Y-%m-%d")
+    }
+    
     quests_collection.insert_one(quest_doc)
     quest_doc.pop("_id", None)
 
@@ -156,7 +168,11 @@ def change_quest_status():
 
     result = quests_collection.update_one(
         {"userId": user_id, "questId": quest_id},
-        {"$set": {"status": status}}
+        {"$set": {
+            "status": status,
+            "updated_at": datetime.utcnow().strftime("%Y-%m-%d")
+        }}
+
     )
 
     if result.matched_count == 0:
@@ -166,6 +182,40 @@ def change_quest_status():
         "userId": user_id,
         "questId": quest_id,
         "status": status
+    }), 200
+    
+@app.route("/quests/spent", methods=["POST"])
+def add_spent_log():
+    data = request.get_json()
+
+    user_id = data.get("userId")
+    quest_id = data.get("questId")
+    spent_at = data.get("spent_at")        # YYYY-MM-DD
+    spent_minutes = data.get("spent_minutes")
+
+    if not all([user_id, quest_id, spent_at, spent_minutes]):
+        return jsonify({"error": "Missing required fields"}), 400
+
+    spent_log = {
+        "spent_at": spent_at,
+        "spent_minutes": int(spent_minutes)
+    }
+
+    result = quests_collection.update_one(
+        {"userId": int(user_id), "questId": int(quest_id)},
+        {
+            "$push": {"spent_logs": spent_log},
+            "$set": {"updated_at": datetime.utcnow().strftime("%Y-%m-%d")}
+        }
+    )
+
+    if result.matched_count == 0:
+        return jsonify({"error": "Quest not found"}), 404
+
+    return jsonify({
+        "message": "Study time logged",
+        "questId": quest_id,
+        "spent_log": spent_log
     }), 200
 
 # DELETE a quest
