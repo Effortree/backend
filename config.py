@@ -7,3 +7,4 @@ load_dotenv()
 
 # 환경변수 읽기
 MONGO_URL = os.getenv("MONGO_URL")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")

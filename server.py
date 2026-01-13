@@ -4,6 +4,9 @@ from models.quest import quests_collection, users_collection, messages_collectio
 from flask_cors import CORS
 from pymongo import ReturnDocument
 from bson.objectid import ObjectId
+from tutor_agent import run_tutor
+from summary_agent import summarize_logs
+import config
 
 app = Flask(__name__)
 CORS(app)  # allows all origins (quick fix)
@@ -314,7 +317,12 @@ def send_message():
     messages_collection.insert_one(user_message)
 
     # ASSISTANT MESSAGE
-    assistant_content = generate_tutor_reply(quick_action, content)
+    try:
+        assistant_content = run_tutor(content)
+    except Exception as e:
+        print("❌ Tutor AI error:", e)
+        assistant_content = "Sorry, I couldn't generate a response right now."
+
     created_at_assistant = datetime.utcnow().isoformat() + "Z"
 
     assistant_message = {
@@ -450,27 +458,48 @@ def get_logs_by_date():
 # GET summary of today's summary (MOCK)
 # -----------------------------
 @app.route("/logs/summary", methods=["GET"])
-def get_today_summary():
+def get_logs_summary():
     user_id = request.args.get("userId")
+    date = request.args.get("date")  # OPTIONAL
+
     if not user_id:
         return jsonify({"error": "userId is required"}), 400
 
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    user_id = int(user_id)
 
-    today_logs = list(pages_collection.find(
-        {"userId": int(user_id), "createdAt": {"$regex": f"^{today}"}},
+    # If date not provided → use today
+    if not date:
+        date = datetime.utcnow().strftime("%Y-%m-%d")
+
+    logs = list(pages_collection.find(
+        {
+            "userId": user_id,
+            "createdAt": {"$regex": f"^{date}"}
+        },
         {"_id": 0}
     ))
 
-    # MOCK summary
-    summary_text = " ".join(p["content"] for p in today_logs)
+    if not logs:
+        return jsonify({
+            "userId": user_id,
+            "date": date,
+            "summary": "No activity logged for this date.",
+            "updatedAt": datetime.utcnow().isoformat()
+        }), 200
+
+    combined_text = "\n".join(log["content"] for log in logs)
+
+    try:
+        summary_text = summarize_logs(combined_text)
+    except Exception as e:
+        print("❌ Summary AI error:", e)
+        summary_text = "Summary is temporarily unavailable."
 
     return jsonify({
-        "userId": int(user_id),
-        "date": today,
+        "userId": user_id,
+        "date": date,
         "summary": summary_text,
-        "updatedAt": now_iso(),
-        "createdAt": now_iso()
+        "updatedAt": datetime.utcnow().isoformat()
     }), 200
 
 # -----------------------------
