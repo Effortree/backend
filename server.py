@@ -444,6 +444,27 @@ def send_message():
         "assistantMessage": assistant_message
     }), 200
 
+# =========
+# GET CONVO FROM A USER
+# ========
+@app.route("/tutors", methods=["GET"])
+def get_user_messages():
+    user_id = request.args.get("userId")
+
+    if not user_id:
+        return jsonify({"error": "userId parameter is required"}), 400
+
+    user_id = int(user_id)
+
+    messages = list(
+        messages_collection.find(
+            {"userId": user_id},
+            {"_id": 0}
+        ).sort("createdAt", 1)  # SORT BY TIME (ASC)
+    )
+
+    return jsonify(messages), 200
+
 # -----------------------------
 # CREATE a new quick note (page)
 # -----------------------------
