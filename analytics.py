@@ -177,40 +177,90 @@ def streak():
 
 # 5) KANBAN SNAPSHOT API
 @analytics_bp.route("/kanban", methods=["GET"])
-def kanban_snapshot():
+def kanban_flow():
     user_id = int(request.args.get("userId"))
-    date_str = request.args.get("date")  # YYYY-MM-DD
-    D = datetime.strptime(date_str, "%Y-%m-%d").date()
+    mode = request.args.get("mode", "daily")
+    end_date_str = request.args.get("date")
 
-    prepare = active = done = 0
+    # ---- end date ----
+    if end_date_str:
+        end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+    else:
+        end_date = datetime.utcnow().date()
 
-    quests = quests_collection.find({"userId": user_id})
+    # ---- build 10 bucket dates ----
+    if mode == "daily":
+        bucket_dates = [
+            end_date - timedelta(days=i)
+            for i in range(9, -1, -1)
+        ]
 
-    for q in quests:
-        created = datetime.strptime(q["created_at"], "%Y-%m-%d").date()
-        if created > D:
-            continue
+    elif mode == "weekly":
+        # week end (Sunday)
+        end = end_date - timedelta(days=end_date.weekday()) + timedelta(days=6)
+        bucket_dates = [
+            end - timedelta(weeks=i)
+            for i in range(9, -1, -1)
+        ]
 
-        if q.get("status") == "done":
-            done += 1
-            continue
+    elif mode == "monthly":
+        end = end_date.replace(day=1)
+        bucket_dates = []
+        for i in range(9, -1, -1):
+            d = end - timedelta(days=32 * i)
+            d = d.replace(day=1)
+            last_day = (d.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+            bucket_dates.append(last_day)
 
-        is_active = False
-        for log in q.get("spent_logs", []):
-            if datetime.strptime(log["spent_at"], "%Y-%m-%d").date() <= D:
-                is_active = True
-                break
+    else:
+        return jsonify({"error": "Invalid mode"}), 400
 
-        if is_active or q.get("status") == "active":
-            active += 1
-        else:
-            prepare += 1
+    quests = list(quests_collection.find({"userId": user_id}))
+
+    results = []
+
+    for D in bucket_dates:
+        prepare = active = done = 0
+
+        for q in quests:
+            created = datetime.strptime(q["created_at"], "%Y-%m-%d").date()
+            if created > D:
+                continue
+
+            # ---- DONE (strict) ----
+            if q.get("status") == "done":
+                updated = datetime.strptime(q["updated_at"], "%Y-%m-%d").date()
+                if updated <= D:
+                    done += 1
+                    continue
+
+            # ---- ACTIVE ----
+            is_active = q.get("status") == "active"
+
+            if not is_active:
+                for log in q.get("spent_logs", []):
+                    if (
+                        log["spent_minutes"] > 0
+                        and datetime.strptime(log["spent_at"], "%Y-%m-%d").date() <= D
+                    ):
+                        is_active = True
+                        break
+
+            if is_active:
+                active += 1
+            else:
+                prepare += 1
+
+        results.append({
+            "date": D.strftime("%Y-%m-%d"),
+            "prepare": prepare,
+            "active": active,
+            "done": done
+        })
 
     return jsonify({
-        "date": date_str,
-        "prepare": prepare,
-        "active": active,
-        "done": done
+        "mode": mode,
+        "buckets": results
     })
 
 @analytics_bp.route("/daily-actual-308", methods=["GET"])
