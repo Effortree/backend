@@ -15,6 +15,23 @@ from analytics import analytics_bp
 app.register_blueprint(analytics_bp)
 
 # -----------------------------
+# UTILITY FUNCTION: Build conversation history
+# -----------------------------
+def build_history(messages, limit=6):
+    """
+    messages: list of {role, content}
+    Returns a string of the last N messages formatted for the LLM.
+    """
+    recent = messages[-limit:]
+
+    history_lines = []
+    for m in recent:
+        role = "User" if m["role"] == "user" else "Assistant"
+        history_lines.append(f"{role}: {m['content']}")
+
+    return "\n".join(history_lines)
+
+# -----------------------------
 # Generic counter function
 # -----------------------------
 def get_next_id(counter_name):
@@ -140,6 +157,8 @@ def update_quest():
 
     if not update_fields:
         return jsonify({"error": "No fields to update"}), 400
+    
+    update_fields["updated_at"] = datetime.utcnow().strftime("%Y-%m-%d")
 
     result = quests_collection.update_one(
         {"userId": user_id, "questId": quest_id},
@@ -368,7 +387,20 @@ def send_message():
 
     # ASSISTANT MESSAGE
     try:
-        assistant_content = run_tutor(content)
+        # 1) Load previous messages (last 50 for example)
+        previous_messages = list(
+            messages_collection.find(
+                {"userId": user_id},
+                {"role": 1, "content": 1, "_id": 0}
+            ).sort("createdAt", 1).limit(50)
+        )
+
+        # 2) Build history string
+        history_text = build_history(previous_messages, limit=6)  # last 6 messages for memory
+
+        # 3) Call tutor with memory
+        assistant_content = run_tutor(content, history_text)
+
     except Exception as e:
         print("❌ Tutor AI error:", e)
         assistant_content = "Sorry, I couldn't generate a response right now."

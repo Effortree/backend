@@ -229,8 +229,18 @@ def kanban_flow():
 
             # ---- DONE (strict) ----
             if q.get("status") == "done":
-                updated = datetime.strptime(q["updated_at"], "%Y-%m-%d").date()
-                if updated <= D:
+                # 2. Safely get 'updated_at'
+                updated_str = q.get("updated_at")
+                
+                if updated_str:
+                    updated = datetime.strptime(updated_str, "%Y-%m-%d").date()
+                    if updated <= D:
+                        done += 1
+                        continue
+                else:
+                    # Fallback: if 'done' but no 'updated_at', you might want to 
+                    # treat it as 'done' based on creation date or just skip it.
+                    # For now, let's treat it as 'done' to be safe:
                     done += 1
                     continue
 
