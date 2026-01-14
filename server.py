@@ -65,24 +65,6 @@ def get_next_message_id():
 def now_iso():
     return datetime.utcnow().isoformat() + "Z"
 
-# =========
-# generate tutor reply (temporary mock)
-# =========             
-def generate_tutor_reply(quick_action, content):
-    if quick_action == "hint":
-        return "Here is a hint to guide your thinking."
-    elif quick_action == "example":
-        return "Here is an example to help you understand."
-    elif quick_action == "why":
-        return "Here is the reasoning behind this concept."
-    elif quick_action == "summary":
-        return "Here is a short summary."
-    elif quick_action == "application":
-        return "Here is how you can apply this concept."
-    else:  # text
-        return f"You said: {content}"
-
-
 # -----------------------------
 # QUEST ROUTES
 # -----------------------------
@@ -390,42 +372,41 @@ def send_message():
     # -------------------------
     # ASSISTANT MESSAGE
     # -------------------------
-    try:
-        # 1) Load previous messages (last 50)
-        previous_messages = list(
-            messages_collection.find(
-                {"userId": user_id},
-                {"role": 1, "content": 1, "_id": 0}
-            ).sort("createdAt", 1).limit(50)
-        )
+    # 1) Load previous messages (last 50)
+    previous_messages = list(
+        messages_collection.find(
+            {"userId": user_id},
+            {"role": 1, "content": 1, "_id": 0}
+        ).sort("createdAt", 1).limit(50)
+    )
 
-        # 2) Build history string
-        history_text = build_history(previous_messages, limit=6)
+    # 2) Build history string
+    history_text = build_history(previous_messages, limit=6)
 
         # 3) For quick actions, include last tutor response
-        if quick_action in ["why", "hint", "example", "summary", "application"]:
-            last_assistant = list(
-                messages_collection.find(
-                    {"userId": user_id, "role": "assistant"},
-                    {"content": 1, "_id": 0}
-                ).sort("createdAt", -1).limit(1)
-            )
-            last_text = last_assistant[0]["content"] if last_assistant else ""
-            content_to_send = (
-                f"User clicked '{quick_action}' on the last tutor answer:\n{last_text}\n"
-                "Respond appropriately to the user."
-            )
-        else:
-            content_to_send = content
-
+    if quick_action in ["why", "hint", "example", "summary", "application"]:
+        last_assistant = list(
+            messages_collection.find(
+                {"userId": user_id, "role": "assistant"},
+                {"content": 1, "_id": 0}
+            ).sort("createdAt", -1).limit(1)
+        )
+        last_text = last_assistant[0]["content"] if last_assistant else ""
+        
+        content_to_send = (
+            f"User clicked '{quick_action}' on the last tutor answer:\n{last_text}\n"
+            "Respond appropriately to the user."
+        )
+    else:
+        content_to_send = content
+    try:
         # 4) Call tutor LLM with memory
         assistant_content = run_tutor(content_to_send, history_text)
 
     except Exception as e:
         print("❌ Tutor AI error:", e)
         assistant_content = "Sorry, I couldn't generate a response right now."
-
-    created_at_assistant = datetime.utcnow().isoformat() + "Z"
+        created_at_assistant = datetime.utcnow().isoformat() + "Z"
 
     assistant_message = {
         "messageId": f"{seq_id}-A",
