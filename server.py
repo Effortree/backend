@@ -399,6 +399,9 @@ def send_message():
         )
     else:
         content_to_send = content
+        
+    created_at_assistant = datetime.utcnow().isoformat() + "Z"
+
     try:
         # 4) Call tutor LLM with memory
         assistant_content = run_tutor(content_to_send, history_text)
