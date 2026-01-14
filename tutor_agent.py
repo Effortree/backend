@@ -16,6 +16,7 @@ tutor_prompt = ChatPromptTemplate.from_messages([
      "You are a helpful, friendly AI tutor. "
      "Explain clearly and concisely. "
      "Use simple examples if helpful."),
+    ("system", "Conversation so far:\n{history}"),
     ("human", "{message}")
 ])
 
@@ -23,5 +24,21 @@ tutor_prompt = ChatPromptTemplate.from_messages([
 tutor_chain = tutor_prompt | llm | StrOutputParser()
 
 # 4) Public function (IMPORTANT)
-def run_tutor(message: str) -> str:
-    return tutor_chain.invoke({"message": message})
+def run_tutor(message: str, history: str) -> str:
+    return tutor_chain.invoke({
+        "message": message,
+        "history": history
+    })
+
+def build_history(messages, limit=6):
+    """
+    messages: list of {role, content}
+    """
+    recent = messages[-limit:]
+
+    history_lines = []
+    for m in recent:
+        role = "User" if m["role"] == "user" else "Assistant"
+        history_lines.append(f"{role}: {m['content']}")
+
+    return "\n".join(history_lines)

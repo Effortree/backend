@@ -15,7 +15,7 @@ from analytics import analytics_bp
 app.register_blueprint(analytics_bp)
 
 # -----------------------------
-# UTILITY FUNCTION: Build conversation history
+# UTILITY: Build conversation history
 # -----------------------------
 def build_history(messages, limit=6):
     """
@@ -365,7 +365,7 @@ def send_message():
 
     user_id = data.get("userId")
     quick_action = data.get("quickAction")
-    content = data.get("content")
+    content = data.get("content", "")
 
     if not user_id or not quick_action:
         return jsonify({"error": "userId and quickAction are required"}), 400
@@ -375,19 +375,23 @@ def send_message():
 
     seq_id = get_next_message_id()  # e.g., 1001
 
+    # -------------------------
     # USER MESSAGE
+    # -------------------------
     user_message = {
-    "messageId": f"{seq_id}-U",   # <- here
-    "userId": user_id,
-    "role": "user",
-    "content": content,
-    "createdAt": datetime.utcnow().isoformat() + "Z"
-}
+        "messageId": f"{seq_id}-U",
+        "userId": user_id,
+        "role": "user",
+        "content": content,
+        "createdAt": datetime.utcnow().isoformat() + "Z"
+    }
     messages_collection.insert_one(user_message)
 
+    # -------------------------
     # ASSISTANT MESSAGE
+    # -------------------------
     try:
-        # 1) Load previous messages (last 50 for example)
+        # 1) Load previous messages (last 50)
         previous_messages = list(
             messages_collection.find(
                 {"userId": user_id},
@@ -396,10 +400,26 @@ def send_message():
         )
 
         # 2) Build history string
-        history_text = build_history(previous_messages, limit=6)  # last 6 messages for memory
+        history_text = build_history(previous_messages, limit=6)
 
-        # 3) Call tutor with memory
-        assistant_content = run_tutor(content, history_text)
+        # 3) For quick actions, include last tutor response
+        if quick_action in ["why", "hint", "example", "summary", "application"]:
+            last_assistant = list(
+                messages_collection.find(
+                    {"userId": user_id, "role": "assistant"},
+                    {"content": 1, "_id": 0}
+                ).sort("createdAt", -1).limit(1)
+            )
+            last_text = last_assistant[0]["content"] if last_assistant else ""
+            content_to_send = (
+                f"User clicked '{quick_action}' on the last tutor answer:\n{last_text}\n"
+                "Respond appropriately to the user."
+            )
+        else:
+            content_to_send = content
+
+        # 4) Call tutor LLM with memory
+        assistant_content = run_tutor(content_to_send, history_text)
 
     except Exception as e:
         print("❌ Tutor AI error:", e)
@@ -408,12 +428,12 @@ def send_message():
     created_at_assistant = datetime.utcnow().isoformat() + "Z"
 
     assistant_message = {
-    "messageId": f"{seq_id}-A",   # <- here
-    "userId": user_id,
-    "role": "assistant",
-    "content": assistant_content,
-    "createdAt": datetime.utcnow().isoformat() + "Z"
-}
+        "messageId": f"{seq_id}-A",
+        "userId": user_id,
+        "role": "assistant",
+        "content": assistant_content,
+        "createdAt": created_at_assistant
+    }
     messages_collection.insert_one(assistant_message)
 
     user_message.pop("_id", None)
@@ -423,27 +443,6 @@ def send_message():
         "userMessage": user_message,
         "assistantMessage": assistant_message
     }), 200
-
-# =========
-# GET CONVO FROM A USER
-# ========
-@app.route("/tutors", methods=["GET"])
-def get_user_messages():
-    user_id = request.args.get("userId")
-
-    if not user_id:
-        return jsonify({"error": "userId parameter is required"}), 400
-
-    user_id = int(user_id)
-
-    messages = list(
-        messages_collection.find(
-            {"userId": user_id},
-            {"_id": 0}
-        ).sort("createdAt", 1)  # SORT BY TIME (ASC)
-    )
-
-    return jsonify(messages), 200
 
 # -----------------------------
 # CREATE a new quick note (page)
