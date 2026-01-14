@@ -1,0 +1,48 @@
+[
+      {
+    "questId": 10056,
+    "userId": 12,
+    "subject": "History",
+    "topic": "WW2",
+    "description": "Read chapter",
+    "status": "done",
+    "visibility": "private",
+    "suggested_minutes": 30,
+    "deadline": "2026-01-16",
+    "spent_logs": [
+      { "spent_at": "2026-01-13", "spent_minutes": 25 }
+    ],
+    "created_at": "2026-01-12",
+    "updated_at": "2026-01-13"
+  },
+  {
+    "questId": 10078,
+    "userId": 12,
+    "subject": "Math",
+    "topic": "Calculus",
+    "description": "Limits",
+    "status": "active",
+    "visibility": "private",
+    "suggested_minutes": 40,
+    "deadline": "2026-01-20",
+    "spent_logs": [
+      { "spent_at": "2026-01-13", "spent_minutes": 45 }
+    ],
+    "created_at": "2026-01-12",
+    "updated_at": "2026-01-13"
+  },
+  {
+    "questId": 10098,
+    "userId": 12,
+    "subject": "English",
+    "topic": "Grammar",
+    "description": "Tenses",
+    "status": "prepare",
+    "visibility": "private",
+    "suggested_minutes": 20,
+    "deadline": "2026-01-22",
+    "spent_logs": [],
+    "created_at": "2026-01-13",
+    "updated_at": "2026-01-13"
+  }
+]
