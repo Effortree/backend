@@ -2,14 +2,14 @@
 from flask import Blueprint, request, jsonify
 from datetime import datetime, timedelta
 from collections import defaultdict
-from models.quest import quests_collection, gifts_collection, users_collection, links_collection
+from models.quest import quests_collection, users_collection, links_collection
 from parents_llm import run_parent_interpretation
 from pymongo import ReturnDocument
 import oci
 import config
 from PIL import Image
 import io
-
+import os
 parents_bp = Blueprint("parents", __name__)
 
 ROLLING_DAYS = 14
@@ -19,10 +19,17 @@ ROLLING_DAYS = 14
 # ------------------------------
 def resize_image(file, max_size=1024):
     img = Image.open(file)
-    img.thumbnail((max_size, max_size))  # maintain aspect ratio
+
+    # 🔑 FIX: convert RGBA / P to RGB
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
+
+    img.thumbnail((max_size, max_size))
+
     img_byte_arr = io.BytesIO()
-    img.save(img_byte_arr, format='JPEG', quality=85)
+    img.save(img_byte_arr, format="JPEG", quality=85)
     img_byte_arr.seek(0)
+
     return img_byte_arr
 
 # -----------------------------
@@ -46,7 +53,7 @@ def extract_parent_signals(child_id):
 
     # qualitative interpretation
     if not has_any_activity:
-        return {"engagement_flow": "paused", "direction": "unclear", "guidance_level": "wait"}
+        return {"engagement_flow": "quiet", "direction": "steady", "guidance_level": "encourage"}
     if len(active_days) >= 8:
         return {"engagement_flow": "steady", "direction": "stable", "guidance_level": "wait"}
     if 3 <= len(active_days) < 8:
@@ -69,7 +76,8 @@ def build_narrative_features(signals):
     elif flow == "slowing":
         features.append("The recent period suggests a gradual slowing of momentum")
     else:
-        features.append("The recent period appears quieter than usual")
+        features.append("The student is currently in a quiet period, which can be a natural time for reflection and exploration.")
+        features.append("Encouraging curiosity at their own pace is recommended.")
 
     if direction == "recovering":
         features.append("There are signs that momentum can return naturally")
@@ -105,7 +113,7 @@ def parent_interpretation():
 
     return jsonify({
         "current_guidance": interpretation.get("current_guidance", "No interpretation available."),
-        "interpretation_rationale": "Analysis based on 14-day rolling activity patterns."
+        "interpretation_rationale": narrative
     }), 200
 
 # -----------------------------
@@ -129,23 +137,40 @@ def parent_chat():
     answer = run_parent_interpretation(narrative_features, question=question)
 
     return jsonify({
-        "answer": answer.get("answer"),
-        "disclaimer": "I can't share specific activity details. My role is to explain overall interpretation rather than provide raw data."
+        "answer": answer.get("answer")
     }), 200
 
 # -----------------------------
 # OCI Setup for gift images
 # -----------------------------
-signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
-object_storage = oci.object_storage.ObjectStorageClient({}, signer=signer)
+# signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
+# object_storage = oci.object_storage.ObjectStorageClient({}, signer=signer)
 namespace = config.OCI_NAMESPACE
 bucket_name = "effortree-bucket"
+
+# Check if we are running in Docker/Linux or on a Mac
+if os.getenv("RUNNING_ON_SERVER") == "true":
+    # Use Keyless on the Ubuntu Server
+    signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
+    object_storage = oci.object_storage.ObjectStorageClient({}, signer=signer)
+else:
+    # Use the .pem file on your MacBook
+    # (Make sure these variables are in your local .env)
+    config_local = {
+        "user": os.getenv("OCI_USER"),
+        "key_file": os.getenv("KEY_FILE"), 
+        "fingerprint": os.getenv("OCI_FINGERPRINT"),
+        "tenancy": os.getenv("OCI_TENANCY"),
+        "region": os.getenv("OCI_REGION")
+    }
+    object_storage = oci.object_storage.ObjectStorageClient(config_local)
 
 # -----------------------------
 # CREATE / UPDATE GIFT
 # -----------------------------
 @parents_bp.route("/parents/gift", methods=["POST"])
 def create_or_update_gift():
+    parent_id = request.form["parentId"]
     child_id = request.form.get("childId")
     message = request.form.get("message")
     image_file = request.files.get("giftImage")
@@ -153,6 +178,19 @@ def create_or_update_gift():
     if not child_id or not message:
         return jsonify({"error": "Missing childId or message"}), 400
 
+    parent_id = int(parent_id)
+    child_id = int(child_id)
+    
+    link = links_collection.find_one({
+        "parentId": parent_id,
+        "childIds": int(child_id)
+    })
+    
+    if not link:
+        return jsonify({"error": "Parent not connected to this child"}), 403
+    if not child_id or not message:
+        return jsonify({"error": "Missing childId or message"}), 400
+    
     image_url = None
     if image_file:
         filename = f"gift_{child_id}_{datetime.utcnow().timestamp()}.jpg"
@@ -160,8 +198,8 @@ def create_or_update_gift():
         object_storage.put_object(namespace, bucket_name, filename, image_bytes.read())
         image_url = f"https://objectstorage.{config.OCI_REGION}.oraclecloud.com/n/{namespace}/b/{bucket_name}/o/{filename}"
 
-    gifts_collection.find_one_and_update(
-        {"childId": int(child_id)},
+    users_collection.find_one_and_update(
+        {"userId": int(child_id)},
         {"$set": {"message": message, "imageUrl": image_url, "updated_at": datetime.utcnow().isoformat() + "Z"}},
         upsert=True
     )
@@ -177,12 +215,12 @@ def get_gift():
     if not child_id:
         return jsonify({"error": "childId is required"}), 400
 
-    gift = gifts_collection.find_one({"childId": int(child_id)})
+    gift = users_collection.find_one({"userId": int(child_id)})
     if not gift:
         return jsonify({"error": "No gift found for this child."}), 404
 
     return jsonify({
-        "childId": gift["childUserId"],
+        "childId": gift.get("childId") or gift.get("userId"),
         "message": gift.get("message"),
         "imageUrl": gift.get("imageUrl"),
         "updated_at": gift.get("updated_at")
@@ -198,7 +236,7 @@ def delete_gift():
     if not child_id:
         return jsonify({"error": "childId is required"}), 400
 
-    result = gifts_collection.delete_one({"childId": int(child_id)})
+    result = users_collection.delete_one({"userId": int(child_id)})
     if result.deleted_count == 0:
         return jsonify({"error": "No gift found to delete."}), 404
 
@@ -241,4 +279,4 @@ def connect_child():
         return_document=ReturnDocument.AFTER
     )
 
-    return jsonify({"childId": int(child_id), "parentId": parent["userId"]}), 200
+    return jsonify({"childId": int(child_id)}), 200
