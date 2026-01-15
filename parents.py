@@ -136,7 +136,7 @@ def parent_interpretation():
     interpretation = run_parent_interpretation(narrative)
 
     return jsonify({
-        "current_guidance": interpretation.get("answer", "No interpretation available."),
+        "current_guidance": interpretation.get("current_guidance", "No interpretation available."),
         "interpretation_rationale": "Analysis based on 14-day rolling activity patterns."
     }), 200
 
