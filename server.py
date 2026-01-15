@@ -78,7 +78,7 @@ def create_quest():
     data = request.get_json()
 
     quest_id = get_next_quest_id()  # generate unique questId
-    created_at = datetime.utcnow().strftime("%Y-%m-%d")  # ISO date
+    created_at = datetime.utcnow().isoformat() + "Z"  # ISO date
 
     quest_doc = {
         "questId": quest_id,
@@ -98,8 +98,8 @@ def create_quest():
         #ANALYTICS
         "spent_logs": [],
 
-        "created_at": datetime.utcnow().strftime("%Y-%m-%d"),
-        "updated_at": datetime.utcnow().strftime("%Y-%m-%d")
+        "created_at": datetime.utcnow().isoformat() + "Z",
+        "updated_at": datetime.utcnow().isoformat() + "Z"
     }
     
     quests_collection.insert_one(quest_doc)
@@ -144,7 +144,7 @@ def update_quest():
     if not update_fields:
         return jsonify({"error": "No fields to update"}), 400
     
-    update_fields["updated_at"] = datetime.utcnow().strftime("%Y-%m-%d")
+    update_fields["updated_at"] = datetime.utcnow().isoformat() + "Z"
 
     result = quests_collection.update_one(
         {"userId": user_id, "questId": quest_id},
@@ -175,7 +175,7 @@ def change_quest_status():
         {"userId": user_id, "questId": quest_id},
         {"$set": {
             "status": status,
-            "updated_at": datetime.utcnow().strftime("%Y-%m-%d")
+            "updated_at": datetime.utcnow().isoformat() + "Z"
         }}
 
     )
@@ -210,7 +210,7 @@ def add_spent_log():
         {"userId": int(user_id), "questId": int(quest_id)},
         {
             "$push": {"spent_logs": spent_log},
-            "$set": {"updated_at": datetime.utcnow().strftime("%Y-%m-%d")}
+            "$set": {"updated_at": datetime.utcnow().isoformat() + "Z"}
         }
     )
 
@@ -261,12 +261,14 @@ def register_user():
 
     user_doc = {
         "userId": user_id, 
-        "password": password,
+        # "password": password,
         "email": email,
-        "imageUrl": None,
-        "message": None,
-        "created_at": now_iso,
-        "updated_at": now_iso
+        "imageUrl": None,   # reward image initially null
+        # "message": None,    # reward message initially null
+        "created_at": now_iso(),
+        # "updated_at": now_iso()
+        # "nickname" : None,
+        # "quests" : None
     }
 
     users_collection.insert_one(user_doc)
@@ -563,7 +565,7 @@ def get_logs_summary():
 
     # If date not provided → use today
     if not date:
-        date = datetime.utcnow().strftime("%Y-%m-%d")
+        date = datetime.utcnow().isoformat() + "Z"
 
     logs = list(pages_collection.find(
         {
@@ -578,7 +580,7 @@ def get_logs_summary():
             "userId": user_id,
             "date": date,
             "summary": "No activity logged for this date.",
-            "updatedAt": datetime.utcnow().isoformat()
+            "updatedAt": datetime.utcnow().isoformat() + "Z"
         }), 200
 
     combined_text = "\n".join(log["content"] for log in logs)
@@ -593,7 +595,7 @@ def get_logs_summary():
         "userId": user_id,
         "date": date,
         "summary": summary_text,
-        "updatedAt": datetime.utcnow().isoformat()
+        "updatedAt": datetime.utcnow().isoformat() + "Z"
     }), 200
 
 # -----------------------------

@@ -30,7 +30,6 @@ parent_prompt = ChatPromptTemplate.from_messages([
     ),
     ("system",
      "The following are abstract narrative features prepared by the backend.\n"
-     "They already reflect a 14-day rolling interpretation.\n"
      "Do NOT attempt to reconstruct or infer concrete details.\n\n"
      "{narrative}"
     ),
@@ -70,8 +69,10 @@ def run_parent_interpretation(narrative_features, question=None):
             "narrative": narrative_text,
             "question": query
         })
+        print("✅ Raw LLM Output:", raw_output)
     except Exception as e:
         print(f"❌ LLM Invoke Error: {e}")
+
         error_msg = "I'm having trouble interpreting the data right now."
         return {"answer": error_msg, "current_guidance": error_msg, "interpretation_rationale": "Error"}
 
@@ -80,14 +81,13 @@ def run_parent_interpretation(narrative_features, question=None):
     # Remove common LLM prefixes if they exist
     answer = re.sub(r"^(Current Guidance[:\*]*|Interpretation[:\*]*|Answer[:\*]*|\d+\)|-)\s*", "", answer, flags=re.IGNORECASE)
 
-    # 6. RETURN LOGIC: Match the keys expected by parents.py
+    rationale_text = "\n".join(f"- {f}" for f in narrative_features) or "No recent activity recorded."
+
+    # 7. Return based on chat vs dashboard
     if is_chat:
-        # For @parents_bp.route("/parents/chat")
         return {"answer": answer}
     else:
-        # For @parents_bp.route("/parents/interpretation")
-        # Since the LLM returns one block of text, we split it or use it for both
         return {
             "current_guidance": answer,
-            "interpretation_rationale": "Based on the 14-day rolling activity rhythm."
+            "interpretation_rationale": rationale_text
         }

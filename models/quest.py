@@ -11,5 +11,4 @@ quests_collection = db['quests']                    # collection
 users_collection = db["users"]       
 messages_collection = db['messages']  
 pages_collection = db['pages']
-gifts_collection = db['gifts']
 links_collection = db['links']
