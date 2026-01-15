@@ -263,7 +263,10 @@ def register_user():
         "userId": user_id, 
         "password": password,
         "email": email,
-        "created_at": datetime.now().strftime("%Y-%m-%d")
+        "imageUrl": None,
+        "message": None,
+        "created_at": now_iso,
+        "updated_at": now_iso
     }
 
     users_collection.insert_one(user_doc)
@@ -301,13 +304,15 @@ def update_user():
         return jsonify({"error": "userId is required"}), 400
 
     update_fields = {}
-    if "nickname" in data:
-        update_fields["nickname"] = data["nickname"]
-    if "role" in data:
-        update_fields["role"] = data["role"]
+    for field in ["nickname", "role", "imageUrl", "message"]:
+        if field in data:
+            update_fields[field] = data[field]
 
     if not update_fields:
         return jsonify({"error": "No fields to update"}), 400
+
+    # Always update `updated_at`
+    update_fields["updated_at"] = datetime.utcnow().isoformat() + "Z"
 
     result = users_collection.update_one(
         {"userId": user_id},
@@ -319,11 +324,10 @@ def update_user():
 
     user = users_collection.find_one(
         {"userId": user_id},
-        {"_id": 0, "password": 0, "email": 0}
+        {"_id": 0, "password": 0, "email": 0}  # don't return sensitive info
     )
 
     return jsonify(user), 200
-
 
 # DELETE a user
 @app.route("/users", methods=["DELETE"])
