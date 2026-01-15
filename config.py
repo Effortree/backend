@@ -8,3 +8,5 @@ load_dotenv()
 # 환경변수 읽기
 MONGO_URL = os.getenv("MONGO_URL")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+OCI_NAMESPACE = os.getenv("OCI_NAMESPACE")
+OCI_REGION = os.getenv("OCI_REGION")
