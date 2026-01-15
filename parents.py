@@ -170,25 +170,13 @@ def parent_chat():
 
 # --- OCI Setup ---
 # Keyless connection using the server's own identity
-if os.getenv("RUNNING_ON_SERVER") == "true":
+# os.getenv("RUNNING_ON_SERVER") == "true":
 
     # Use Keyless on the Ubuntu Server
-    signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
-    object_storage = oci.object_storage.ObjectStorageClient({}, signer=signer)
     
-else:
-    # Use the .pem file on your MacBook
-    config_local = {
-
-        "user": os.getenv("OCI_USER"),
-        "key_file": os.getenv("KEY_FILE"),
-        "fingerprint": os.getenv("OCI_FINGERPRINT"),
-        "tenancy": os.getenv("OCI_TENANCY"),
-        "region": os.getenv("OCI_REGION")
-
-    }
-
-    object_storage = oci.object_storage.ObjectStorageClient(config_local)
+    
+signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
+object_storage = oci.object_storage.ObjectStorageClient({}, signer=signer)
 
 namespace = config.OCI_NAMESPACE
 bucket_name = "effortree-bucket"
