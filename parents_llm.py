@@ -48,29 +48,23 @@ parent_chain = parent_prompt | llm | StrOutputParser()
 def run_parent_interpretation(narrative_features, question=None):
     """
     Generates a parent-friendly answer based on narrative features.
-    - Returns plain text in 'answer'.
-    - Avoids any raw numbers or logs.
+    Handles both dashboard interpretation and direct chat questions.
     """
     # 1. Format the narrative features into a bulleted string
     narrative_text = "\n".join(f"- {f}" for f in narrative_features)
     
-    # 2. Default question if none provided
-    query = question or "Please provide a general interpretation of the child's learning flow."
+    # 2. Determine if this is a general interpretation or a specific chat question
+    is_chat = question is not None
+    query = question or "Provide a general interpretation of the learning flow and a brief rationale."
 
-    # 3. Check if the question asks for numbers or logs
-    forbidden_keywords = [
-        "number", "minutes", "spent", "log", "date", "time", "statistics", "detail"
-    ]
+    # 3. Guardrail: Check for forbidden keywords (data privacy)
+    forbidden_keywords = ["number", "minutes", "spent", "log", "date", "time", "statistics", "detail"]
     if any(word in query.lower() for word in forbidden_keywords):
-        return {
-            "answer": (
-                "I can't share specific activity details. "
-                "My role is to explain the overall interpretation and what it means for support, "
-                "rather than provide records or measurements."
-            )
-        }
+        msg = ("I can't share specific activity details. My role is to explain the overall "
+               "interpretation rather than provide raw records.")
+        return {"answer": msg, "current_guidance": msg, "interpretation_rationale": "Privacy Guardrail"}
 
-    # 4. Call the LLM chain for normal interpretation questions
+    # 4. Call the LLM
     try:
         raw_output = parent_chain.invoke({
             "narrative": narrative_text,
@@ -78,12 +72,22 @@ def run_parent_interpretation(narrative_features, question=None):
         })
     except Exception as e:
         print(f"❌ LLM Invoke Error: {e}")
-        return {
-            "answer": "I'm sorry, I'm having trouble interpreting the data right now."
-        }
+        error_msg = "I'm having trouble interpreting the data right now."
+        return {"answer": error_msg, "current_guidance": error_msg, "interpretation_rationale": "Error"}
 
-    # 5. Clean output (just in case LLM adds headers or bullets)
+    # 5. Clean output
     answer = raw_output.strip()
-    answer = re.sub(r"^(Current Guidance[:\*]*|Interpretation[:\*]*|\d+\)|-)\s*", "", answer)
+    # Remove common LLM prefixes if they exist
+    answer = re.sub(r"^(Current Guidance[:\*]*|Interpretation[:\*]*|Answer[:\*]*|\d+\)|-)\s*", "", answer, flags=re.IGNORECASE)
 
-    return {"answer": answer}
+    # 6. RETURN LOGIC: Match the keys expected by parents.py
+    if is_chat:
+        # For @parents_bp.route("/parents/chat")
+        return {"answer": answer}
+    else:
+        # For @parents_bp.route("/parents/interpretation")
+        # Since the LLM returns one block of text, we split it or use it for both
+        return {
+            "current_guidance": answer,
+            "interpretation_rationale": "Based on the 14-day rolling activity rhythm."
+        }
