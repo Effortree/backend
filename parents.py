@@ -143,27 +143,27 @@ def parent_chat():
 # -----------------------------
 # OCI Setup for gift images
 # -----------------------------
-# signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
-# object_storage = oci.object_storage.ObjectStorageClient({}, signer=signer)
+signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
+object_storage = oci.object_storage.ObjectStorageClient({}, signer=signer)
 namespace = config.OCI_NAMESPACE
 bucket_name = "effortree-bucket"
 
-# Check if we are running in Docker/Linux or on a Mac
-if os.getenv("RUNNING_ON_SERVER") == "true":
-    # Use Keyless on the Ubuntu Server
-    signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
-    object_storage = oci.object_storage.ObjectStorageClient({}, signer=signer)
-else:
-    # Use the .pem file on your MacBook
-    # (Make sure these variables are in your local .env)
-    config_local = {
-        "user": os.getenv("OCI_USER"),
-        "key_file": os.getenv("KEY_FILE"), 
-        "fingerprint": os.getenv("OCI_FINGERPRINT"),
-        "tenancy": os.getenv("OCI_TENANCY"),
-        "region": os.getenv("OCI_REGION")
-    }
-    object_storage = oci.object_storage.ObjectStorageClient(config_local)
+# # Check if we are running in Docker/Linux or on a Mac
+# if os.getenv("RUNNING_ON_SERVER") == "true":
+#     # Use Keyless on the Ubuntu Server
+#     signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
+#     object_storage = oci.object_storage.ObjectStorageClient({}, signer=signer)
+# else:
+#     # Use the .pem file on your MacBook
+#     # (Make sure these variables are in your local .env)
+#     config_local = {
+#         "user": os.getenv("OCI_USER"),
+#         "key_file": os.getenv("KEY_FILE"), 
+#         "fingerprint": os.getenv("OCI_FINGERPRINT"),
+#         "tenancy": os.getenv("OCI_TENANCY"),
+#         "region": os.getenv("OCI_REGION")
+#     }
+#     object_storage = oci.object_storage.ObjectStorageClient(config_local)
 
 # -----------------------------
 # CREATE / UPDATE GIFT
