@@ -161,7 +161,7 @@ def create_or_update_gift():
         image_url = f"https://objectstorage.{config.OCI_REGION}.oraclecloud.com/n/{namespace}/b/{bucket_name}/o/{filename}"
 
     gifts_collection.find_one_and_update(
-        {"childUserId": int(child_id)},
+        {"childId": int(child_id)},
         {"$set": {"message": message, "imageUrl": image_url, "updated_at": datetime.utcnow().isoformat() + "Z"}},
         upsert=True
     )
@@ -177,7 +177,7 @@ def get_gift():
     if not child_id:
         return jsonify({"error": "childId is required"}), 400
 
-    gift = gifts_collection.find_one({"childUserId": int(child_id)})
+    gift = gifts_collection.find_one({"childId": int(child_id)})
     if not gift:
         return jsonify({"error": "No gift found for this child."}), 404
 
@@ -198,7 +198,7 @@ def delete_gift():
     if not child_id:
         return jsonify({"error": "childId is required"}), 400
 
-    result = gifts_collection.delete_one({"childUserId": int(child_id)})
+    result = gifts_collection.delete_one({"childId": int(child_id)})
     if result.deleted_count == 0:
         return jsonify({"error": "No gift found to delete."}), 404
 
