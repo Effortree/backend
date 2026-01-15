@@ -4,3 +4,5 @@ pymongo==4.15.5
 python-dotenv==1.2.1
 langchain
 langchain-google-genai
+oci
+Pillow

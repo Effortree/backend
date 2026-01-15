@@ -7,12 +7,16 @@ from bson.objectid import ObjectId
 from tutor_agent import run_tutor
 from summary_agent import summarize_logs
 import config
+import oci
 
 app = Flask(__name__)
 CORS(app)  # allows all origins (quick fix)
 
 from analytics import analytics_bp
 app.register_blueprint(analytics_bp)
+
+from parents import parents_bp
+app.register_blueprint(parents_bp)
 
 # -----------------------------
 # UTILITY: Build conversation history
