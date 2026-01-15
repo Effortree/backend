@@ -136,8 +136,8 @@ def parent_interpretation():
     interpretation = run_parent_interpretation(narrative)
 
     return jsonify({
-        "current_guidance": interpretation["current_guidance"],
-        "interpretation_rationale": interpretation["interpretation_rationale"]
+        "current_guidance": interpretation.get("answer", "No interpretation available."),
+        "interpretation_rationale": "Analysis based on 14-day rolling activity patterns."
     }), 200
 
 # -----------------------------
@@ -170,11 +170,6 @@ def parent_chat():
 
 # --- OCI Setup ---
 # Keyless connection using the server's own identity
-# os.getenv("RUNNING_ON_SERVER") == "true":
-
-    # Use Keyless on the Ubuntu Server
-    
-    
 signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
 object_storage = oci.object_storage.ObjectStorageClient({}, signer=signer)
 
