@@ -263,7 +263,7 @@ def register_user():
         "userId": user_id, 
         # "password": password,
         "email": email,
-        "imageUrl": None,   # reward image initially null
+        # "imageUrl": None,   # reward image initially null
         # "message": None,    # reward message initially null
         "created_at": now_iso(),
         # "updated_at": now_iso()
