@@ -14,6 +14,13 @@ parents_bp = Blueprint("parents", __name__)
 
 ROLLING_DAYS = 14
 
+def get_clean_id(id_val):
+    """Safely converts any input to an integer for MongoDB."""
+    try:
+        return int(float(id_val))
+    except (ValueError, TypeError):
+        return None
+    
 # ------------------------------
 # RESIZE Image
 # ------------------------------
@@ -36,6 +43,7 @@ def resize_image(file, max_size=1024):
 # INTERNAL: extract signals (qualitative only)
 # -----------------------------
 def extract_parent_signals(child_id):
+    child_id = int(child_id)
     today = datetime.utcnow().date()
     start = today - timedelta(days=ROLLING_DAYS)
 
@@ -102,7 +110,7 @@ def build_narrative_features(signals):
 # -----------------------------
 @parents_bp.route("/parents/interpretation", methods=["GET"])
 def parent_interpretation():
-    child_id = request.args.get("childId")
+    child_id = get_clean_id(request.args.get("childId"))
     if not child_id:
         return jsonify({"error": "childId is required"}), 400
 
@@ -110,7 +118,7 @@ def parent_interpretation():
     signals = extract_parent_signals(child_id)
     narrative = build_narrative_features(signals)
     interpretation = run_parent_interpretation(narrative)
-
+    
     return jsonify({
         "current_guidance": interpretation.get("current_guidance", "No interpretation available."),
         "interpretation_rationale": narrative
@@ -124,10 +132,10 @@ def parent_chat():
     data = request.json
     child_id = data.get("childId")
     question = data.get("question")
+    child_id = int(child_id)
     if not child_id or not question:
         return jsonify({"error": "childId and question are required"}), 400
 
-    child_id = int(child_id)
     signals = extract_parent_signals(child_id)
     narrative_features = build_narrative_features(signals)
 
@@ -163,7 +171,7 @@ bucket_name = "effortree-bucket"
 #         "tenancy": os.getenv("OCI_TENANCY"),
 #         "region": os.getenv("OCI_REGION")
 #     }
-#     object_storage = oci.object_storage.ObjectStorageClient(config_local)
+    # object_storage = oci.object_storage.ObjectStorageClient(config_local)
 
 # -----------------------------
 # CREATE / UPDATE GIFT
@@ -280,3 +288,45 @@ def connect_child():
     )
 
     return jsonify({"childId": int(child_id)}), 200
+
+# -----------------------------
+# GET ALL CHILDREN OF A PARENT
+# -----------------------------
+@parents_bp.route("/parents/children", methods=["GET"])
+def get_parent_children():
+    parent_id = get_clean_id(request.args.get("parentId"))
+    if not parent_id:
+        return jsonify({"error": "parentId is required"}), 400
+
+    parent_id = int(parent_id)
+
+    # 1. Find parent-child links
+    link = links_collection.find_one(
+        {"parentId": parent_id},
+        {"_id": 0, "childIds": 1}
+    )
+
+    if not link or not link.get("childIds"):
+        return jsonify({"children": []}), 200
+
+    child_ids = link["childIds"]
+
+    # 2. Fetch child user records
+    children = list(
+        users_collection.find(
+            {"userId": {"$in": child_ids}},
+            {
+                "_id": 0,
+                "userId": 1,
+                "name": 1,
+                "nickname": 1,
+                "email": 1,
+                "role": 1
+            }
+        )
+    )
+
+    return jsonify({
+        "parentId": parent_id,
+        "children": children
+    }), 200
