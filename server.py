@@ -261,7 +261,7 @@ def register_user():
 
     user_doc = {
         "userId": user_id, 
-        # "password": password,
+        "password": password,
         "email": email,
         # "imageUrl": None,   # reward image initially null
         # "message": None,    # reward message initially null
