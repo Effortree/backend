@@ -1,5 +1,5 @@
 # parents.py
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, Response
 from datetime import datetime, timedelta
 from collections import defaultdict
 from models.quest import quests_collection, users_collection, links_collection
@@ -10,37 +10,36 @@ import config
 from PIL import Image
 import io
 import os
+
 parents_bp = Blueprint("parents", __name__)
 
 ROLLING_DAYS = 14
 
+# -----------------------------
+# HELPERS
+# -----------------------------
 def get_clean_id(id_val):
     """Safely converts any input to an integer for MongoDB."""
     try:
         return int(float(id_val))
     except (ValueError, TypeError):
         return None
-    
-# ------------------------------
-# RESIZE Image
-# ------------------------------
+
+def utc_now():
+    return datetime.utcnow().isoformat() + "Z"
+
 def resize_image(file, max_size=1024):
     img = Image.open(file)
-
-    # 🔑 FIX: convert RGBA / P to RGB
     if img.mode in ("RGBA", "P"):
         img = img.convert("RGB")
-
     img.thumbnail((max_size, max_size))
-
     img_byte_arr = io.BytesIO()
     img.save(img_byte_arr, format="JPEG", quality=85)
     img_byte_arr.seek(0)
-
     return img_byte_arr
 
 # -----------------------------
-# INTERNAL: extract signals (qualitative only)
+# EXTRACT PARENT SIGNALS
 # -----------------------------
 def extract_parent_signals(child_id):
     child_id = int(child_id)
@@ -48,7 +47,6 @@ def extract_parent_signals(child_id):
     start = today - timedelta(days=ROLLING_DAYS)
 
     quests = list(quests_collection.find({"userId": child_id}))
-
     active_days = set()
     has_any_activity = False
 
@@ -59,7 +57,6 @@ def extract_parent_signals(child_id):
                 active_days.add(d)
                 has_any_activity = True
 
-    # qualitative interpretation
     if not has_any_activity:
         return {"engagement_flow": "quiet", "direction": "steady", "guidance_level": "encourage"}
     if len(active_days) >= 8:
@@ -69,7 +66,7 @@ def extract_parent_signals(child_id):
     return {"engagement_flow": "slowing", "direction": "slowing", "guidance_level": "attention"}
 
 # -----------------------------
-# INTERNAL: build narrative features
+# BUILD NARRATIVE FEATURES
 # -----------------------------
 def build_narrative_features(signals):
     features = []
@@ -114,7 +111,6 @@ def parent_interpretation():
     if not child_id:
         return jsonify({"error": "childId is required"}), 400
 
-    child_id = int(child_id)
     signals = extract_parent_signals(child_id)
     narrative = build_narrative_features(signals)
     interpretation = run_parent_interpretation(narrative)
@@ -125,14 +121,13 @@ def parent_interpretation():
     }), 200
 
 # -----------------------------
-# PARENT CHAT (interpretation only)
+# PARENT CHAT
 # -----------------------------
 @parents_bp.route("/parents/chat", methods=["POST"])
 def parent_chat():
     data = request.json
-    child_id = data.get("childId")
+    child_id = get_clean_id(data.get("childId"))
     question = data.get("question")
-    child_id = int(child_id)
     if not child_id or not question:
         return jsonify({"error": "childId and question are required"}), 400
 
@@ -144,109 +139,139 @@ def parent_chat():
 
     answer = run_parent_interpretation(narrative_features, question=question)
 
-    return jsonify({
-        "answer": answer.get("answer")
-    }), 200
+    return jsonify({"answer": answer.get("answer")}), 200
 
 # -----------------------------
-# OCI Setup for gift images
+# OCI OBJECT STORAGE SETUP
 # -----------------------------
+# OCI Object Storage setup
 signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
 object_storage = oci.object_storage.ObjectStorageClient({}, signer=signer)
 namespace = config.OCI_NAMESPACE
 bucket_name = "effortree-bucket"
 
-# # Check if we are running in Docker/Linux or on a Mac
 # if os.getenv("RUNNING_ON_SERVER") == "true":
-#     # Use Keyless on the Ubuntu Server
+#     # On OCI compute instance (or Ubuntu server), use Instance Principals
 #     signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
 #     object_storage = oci.object_storage.ObjectStorageClient({}, signer=signer)
 # else:
-#     # Use the .pem file on your MacBook
-#     # (Make sure these variables are in your local .env)
+#     # Local dev on Mac: use API key via env variables
 #     config_local = {
 #         "user": os.getenv("OCI_USER"),
-#         "key_file": os.getenv("KEY_FILE"), 
+#         "key_file": os.getenv("KEY_FILE"),
 #         "fingerprint": os.getenv("OCI_FINGERPRINT"),
 #         "tenancy": os.getenv("OCI_TENANCY"),
 #         "region": os.getenv("OCI_REGION")
 #     }
-    # object_storage = oci.object_storage.ObjectStorageClient(config_local)
+#     object_storage = oci.object_storage.ObjectStorageClient(config_local)
 
 # -----------------------------
-# CREATE / UPDATE GIFT
+# GIFT ENDPOINTS
 # -----------------------------
 @parents_bp.route("/parents/gift", methods=["POST"])
-def create_or_update_gift():
-    parent_id = request.form["parentId"]
-    child_id = request.form.get("childId")
+def upload_gift():
+    child_id = get_clean_id(request.form.get("childId"))
     message = request.form.get("message")
-    image_file = request.files.get("giftImage")
+    image_file = request.files.get("image")
 
-    if not child_id or not message:
-        return jsonify({"error": "Missing childId or message"}), 400
+    if not child_id or not image_file:
+        return jsonify({"error": "childId and image are required"}), 400
 
-    parent_id = int(parent_id)
-    child_id = int(child_id)
-    
-    link = links_collection.find_one({
-        "parentId": parent_id,
-        "childIds": int(child_id)
-    })
-    
-    if not link:
-        return jsonify({"error": "Parent not connected to this child"}), 403
-    if not child_id or not message:
-        return jsonify({"error": "Missing childId or message"}), 400
-    
-    image_url = None
-    if image_file:
-        filename = f"gift_{child_id}_{datetime.utcnow().timestamp()}.jpg"
-        image_bytes = resize_image(image_file, max_size=1024)
-        object_storage.put_object(namespace, bucket_name, filename, image_bytes.read())
-        image_url = f"https://objectstorage.{config.OCI_REGION}.oraclecloud.com/n/{namespace}/b/{bucket_name}/o/{filename}"
+    try:
+        img = Image.open(image_file)
+        img.verify()
+        image_file.seek(0)
+    except Exception:
+        return jsonify({"error": "Invalid image"}), 400
+
+    filename = f"gift_{child_id}_{datetime.utcnow().timestamp()}.jpg"
+
+    object_storage.put_object(
+        namespace_name=namespace,
+        bucket_name=bucket_name,
+        object_name=filename,
+        put_object_body=image_file.read(),
+        content_type="image/jpeg"
+    )
 
     users_collection.find_one_and_update(
-        {"userId": int(child_id)},
-        {"$set": {"message": message, "imageUrl": image_url, "updated_at": datetime.utcnow().isoformat() + "Z"}},
+        {"userId": child_id},
+        {"$set": {"message": message, "imageObject": filename, "updated_at": utc_now()}},
         upsert=True
     )
 
-    return jsonify({"status": "saved", "imageUrl": image_url}), 200
+    return jsonify({"status": "saved"}), 200
 
-# -----------------------------
-# GET GIFT
-# -----------------------------
 @parents_bp.route("/parents/gift", methods=["GET"])
 def get_gift():
-    child_id = request.args.get("childId")
+    child_id = get_clean_id(request.args.get("childId"))
     if not child_id:
         return jsonify({"error": "childId is required"}), 400
 
-    gift = users_collection.find_one({"userId": int(child_id)})
+    gift = users_collection.find_one({"userId": child_id}, {"_id": 0})
     if not gift:
-        return jsonify({"error": "No gift found for this child."}), 404
+        return jsonify({"error": "Not found"}), 404
 
     return jsonify({
-        "childId": gift.get("childId") or gift.get("userId"),
+        "childId": gift.get("userId"),
         "message": gift.get("message"),
-        "imageUrl": gift.get("imageUrl"),
+        "imageUrl": f"/parents/gift/image?childId={child_id}",
         "updated_at": gift.get("updated_at")
     }), 200
 
-# -----------------------------
-# DELETE GIFT
-# -----------------------------
+@parents_bp.route("/parents/gift/image", methods=["GET"])
+def get_gift_image():
+    child_id = get_clean_id(request.args.get("childId"))
+    if not child_id:
+        return jsonify({"error": "childId is required"}), 400
+
+    gift = users_collection.find_one({"userId": child_id})
+    if not gift or not gift.get("imageObject"):
+        return jsonify({"error": "Image not found"}), 404
+
+    object_name = gift["imageObject"]
+    oci_response = object_storage.get_object(
+        namespace_name=namespace,
+        bucket_name=bucket_name,
+        object_name=object_name
+    )
+
+    return Response(
+        oci_response.data.content,
+        mimetype=oci_response.headers.get("content-type", "image/jpeg"),
+        headers={"Cache-Control": "public, max-age=86400"}
+    )
+
 @parents_bp.route("/parents/gift", methods=["DELETE"])
 def delete_gift():
-    data = request.json
+    data = request.get_json()
     child_id = data.get("childId")
     if not child_id:
         return jsonify({"error": "childId is required"}), 400
 
-    result = users_collection.delete_one({"userId": int(child_id)})
-    if result.deleted_count == 0:
+    # Find gift in MongoDB
+    gift = users_collection.find_one({"userId": int(child_id)})
+    if not gift:
         return jsonify({"error": "No gift found to delete."}), 404
+
+    # Delete object from OCI if exists
+    object_name = gift.get("imageObject")
+    if object_name:
+        try:
+            object_storage.delete_object(
+                namespace_name=namespace,
+                bucket_name=bucket_name,
+                object_name=object_name
+            )
+        except oci.exceptions.ServiceError as e:
+            # Log but continue
+            print(f"OCI deletion error: {e}")
+
+    # Remove from MongoDB
+    users_collection.update_one(
+        {"userId": int(child_id)},
+        {"$unset": {"message": "", "imageObject": ""}}
+    )
 
     return jsonify({"status": "deleted"}), 200
 
@@ -256,38 +281,31 @@ def delete_gift():
 @parents_bp.route("/parents/connect", methods=["POST"])
 def connect_child():
     data = request.get_json()
-    child_id = data.get("childId")
+    child_id = get_clean_id(data.get("childId"))
     parent_email = data.get("connectToEmail")
 
     if not child_id or not parent_email:
         return jsonify({"error": "childId and connectToEmail are required"}), 400
 
-    # Validate child exists
-    child = users_collection.find_one({"userId": int(child_id)}, {"_id": 0, "userId": 1})
+    child = users_collection.find_one({"userId": child_id}, {"_id": 0, "userId": 1})
     if not child:
         return jsonify({"error": "Child not found"}), 404
 
-    # Find parent by email
     parent = users_collection.find_one({"email": parent_email}, {"_id": 0, "userId": 1, "role": 1})
     if not parent:
         return jsonify({"error": "Parent not found"}), 404
-
     if parent["role"] != "parent":
         return jsonify({"error": "Target user is not a parent"}), 400
 
-    now = datetime.utcnow().isoformat() + "Z"
-
-    # Upsert parent-child link
+    now = utc_now()
     links_collection.find_one_and_update(
         {"parentId": parent["userId"]},
-        {"$addToSet": {"childIds": int(child_id)},
-         "$setOnInsert": {"created_at": now},
-         "$set": {"updated_at": now}},
+        {"$addToSet": {"childIds": child_id}, "$setOnInsert": {"created_at": now}, "$set": {"updated_at": now}},
         upsert=True,
         return_document=ReturnDocument.AFTER
     )
 
-    return jsonify({"childId": int(child_id)}), 200
+    return jsonify({"childId": child_id}), 200
 
 # -----------------------------
 # GET ALL CHILDREN OF A PARENT
@@ -298,35 +316,11 @@ def get_parent_children():
     if not parent_id:
         return jsonify({"error": "parentId is required"}), 400
 
-    parent_id = int(parent_id)
-
-    # 1. Find parent-child links
-    link = links_collection.find_one(
-        {"parentId": parent_id},
-        {"_id": 0, "childIds": 1}
-    )
-
+    link = links_collection.find_one({"parentId": parent_id}, {"_id": 0, "childIds": 1})
     if not link or not link.get("childIds"):
         return jsonify({"children": []}), 200
 
     child_ids = link["childIds"]
+    children = list(users_collection.find({"userId": {"$in": child_ids}}, {"_id": 0, "userId": 1, "name": 1, "nickname": 1, "email": 1, "role": 1}))
 
-    # 2. Fetch child user records
-    children = list(
-        users_collection.find(
-            {"userId": {"$in": child_ids}},
-            {
-                "_id": 0,
-                "userId": 1,
-                "name": 1,
-                "nickname": 1,
-                "email": 1,
-                "role": 1
-            }
-        )
-    )
-
-    return jsonify({
-        "parentId": parent_id,
-        "children": children
-    }), 200
+    return jsonify({"parentId": parent_id, "children": children}), 200
