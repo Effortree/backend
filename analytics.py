@@ -202,6 +202,22 @@ def kanban_flow():
     end_date_str = request.args.get("date")
 
     # ------------------
+    # Helper: safe ISO date parsing
+    # ------------------
+    def parse_iso_date(date_str):
+        if not date_str:
+            return None
+        try:
+            # Full ISO format with optional Z
+            return datetime.fromisoformat(date_str.replace("Z", "+00:00")).date()
+        except ValueError:
+            try:
+                # fallback to just date part
+                return datetime.strptime(date_str[:10], "%Y-%m-%d").date()
+            except ValueError:
+                return None
+
+    # ------------------
     # End date
     # ------------------
     if end_date_str:
@@ -253,16 +269,17 @@ def kanban_flow():
                 continue
 
             # ---- DONE ----
-            updated = parse_iso_date(q.get("updated_at"))
-            if q.get("status") == "done" and updated and updated <= B["end"]:
-                done += 1
-                continue
+            if q.get("status") == "done":
+                updated = parse_iso_date(q.get("updated_at"))
+                if updated and updated <= B["end"]:
+                    done += 1
+                    continue
 
             # ---- ACTIVE ----
             is_active = False
             for log in q.get("spent_logs", []):
                 log_date = parse_iso_date(log.get("spent_at"))
-                if log_date and log.get("spent_minutes", 0) > 0 and B["start"] <= log_date <= B["end"]:
+                if log_date and log["spent_minutes"] > 0 and B["start"] <= log_date <= B["end"]:
                     is_active = True
                     break
 
