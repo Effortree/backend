@@ -145,25 +145,25 @@ def parent_chat():
 # OCI OBJECT STORAGE SETUP
 # -----------------------------
 # OCI Object Storage setup
-# signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
-# object_storage = oci.object_storage.ObjectStorageClient({}, signer=signer)
+signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
+object_storage = oci.object_storage.ObjectStorageClient({}, signer=signer)
 namespace = config.OCI_NAMESPACE
 bucket_name = "effortree-bucket"
 
-if os.getenv("RUNNING_ON_SERVER") == "true":
-    # On OCI compute instance (or Ubuntu server), use Instance Principals
-    signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
-    object_storage = oci.object_storage.ObjectStorageClient({}, signer=signer)
-else:
-    # Local dev on Mac: use API key via env variables
-    config_local = {
-        "user": os.getenv("OCI_USER"),
-        "key_file": os.getenv("KEY_FILE"),
-        "fingerprint": os.getenv("OCI_FINGERPRINT"),
-        "tenancy": os.getenv("OCI_TENANCY"),
-        "region": os.getenv("OCI_REGION")
-    }
-    object_storage = oci.object_storage.ObjectStorageClient(config_local)
+# if os.getenv("RUNNING_ON_SERVER") == "true":
+#     # On OCI compute instance (or Ubuntu server), use Instance Principals
+#     signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
+#     object_storage = oci.object_storage.ObjectStorageClient({}, signer=signer)
+# else:
+#     # Local dev on Mac: use API key via env variables
+#     config_local = {
+#         "user": os.getenv("OCI_USER"),
+#         "key_file": os.getenv("KEY_FILE"),
+#         "fingerprint": os.getenv("OCI_FINGERPRINT"),
+#         "tenancy": os.getenv("OCI_TENANCY"),
+#         "region": os.getenv("OCI_REGION")
+#     }
+#     object_storage = oci.object_storage.ObjectStorageClient(config_local)
 
 # -----------------------------
 # GIFT ENDPOINTS
