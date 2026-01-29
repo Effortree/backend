@@ -3,6 +3,7 @@ from collections import defaultdict
 from flask import Blueprint, request, jsonify
 from models.quest import quests_collection
 
+
 analytics_bp = Blueprint("analytics", __name__, url_prefix="/analytics")
 
 # -------------------------
@@ -182,79 +183,92 @@ def kanban_flow():
     mode = request.args.get("mode", "daily")
     end_date_str = request.args.get("date")
 
-    # ---- end date ----
+    # ------------------
+    # End date
+    # ------------------
     if end_date_str:
         end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
     else:
         end_date = datetime.utcnow().date()
 
-    # ---- build 10 bucket dates ----
+    # ------------------
+    # Build bucket ranges
+    # ------------------
+    buckets = []
+
     if mode == "daily":
-        bucket_dates = [
-            end_date - timedelta(days=i)
-            for i in range(9, -1, -1)
-        ]
+        for i in range(9, -1, -1):
+            d = end_date - timedelta(days=i)
+            buckets.append({
+                "label": d.strftime("%Y-%m-%d"),
+                "start": d,
+                "end": d
+            })
 
     elif mode == "weekly":
-        # week end (Sunday)
-        end = end_date - timedelta(days=end_date.weekday()) + timedelta(days=6)
-        bucket_dates = [
-            end - timedelta(weeks=i)
-            for i in range(9, -1, -1)
-        ]
+        week_end = end_date - timedelta(days=end_date.weekday()) + timedelta(days=6)
+        for i in range(9, -1, -1):
+            end = week_end - timedelta(weeks=i)
+            start = end - timedelta(days=6)
+            buckets.append({
+                "label": end.strftime("%G-W%V"),
+                "start": start,
+                "end": end
+            })
 
     elif mode == "monthly":
-        end = end_date.replace(day=1)
-        bucket_dates = []
+        month_end = end_date.replace(day=1)
         for i in range(9, -1, -1):
-            d = end - timedelta(days=32 * i)
-            d = d.replace(day=1)
-            last_day = (d.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
-            bucket_dates.append(last_day)
+            d = month_end - timedelta(days=32 * i)
+            start = d.replace(day=1)
+            next_month = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
+            end = next_month - timedelta(days=1)
+            buckets.append({
+                "label": start.strftime("%Y-%m"),
+                "start": start,
+                "end": end
+            })
 
     else:
         return jsonify({"error": "Invalid mode"}), 400
 
     quests = list(quests_collection.find({"userId": user_id}))
-
     results = []
 
-    for D in bucket_dates:
+    # ------------------
+    # Bucket evaluation
+    # ------------------
+    for B in buckets:
         prepare = active = done = 0
 
         for q in quests:
-            created = datetime.strptime(q["created_at"], "%Y-%m-%d").date()
-            if created > D:
+            created_str = q["created_at"]
+            try:
+                created = datetime.strptime(created_str, "%Y-%m-%dT%H:%M:%S.%fZ").date()
+            except ValueError:
+                created = datetime.strptime(created_str, "%Y-%m-%d").date()
+
+            if created > B["end"]:
                 continue
 
-            # ---- DONE (strict) ----
-            if q.get("status") == "done":
-                # 2. Safely get 'updated_at'
-                updated_str = q.get("updated_at")
-                
-                if updated_str:
-                    updated = datetime.strptime(updated_str, "%Y-%m-%d").date()
-                    if updated <= D:
-                        done += 1
-                        continue
-                else:
-                    # Fallback: if 'done' but no 'updated_at', you might want to 
-                    # treat it as 'done' based on creation date or just skip it.
-                    # For now, let's treat it as 'done' to be safe:
+            # ---- DONE ----
+            updated_str = q.get("updated_at")
+            if q.get("status") == "done" and updated_str:
+                updated = datetime.strptime(updated_str[:10], "%Y-%m-%d").date()
+                if updated <= B["end"]:
                     done += 1
                     continue
 
             # ---- ACTIVE ----
-            is_active = q.get("status") == "active"
-
-            if not is_active:
-                for log in q.get("spent_logs", []):
-                    if (
-                        log["spent_minutes"] > 0
-                        and datetime.strptime(log["spent_at"], "%Y-%m-%d").date() <= D
-                    ):
-                        is_active = True
-                        break
+            is_active = False
+            for log in q.get("spent_logs", []):
+                log_date = datetime.strptime(log["spent_at"][:10], "%Y-%m-%d").date()
+                if (
+                    log["spent_minutes"] > 0
+                    and B["start"] <= log_date <= B["end"]
+                ):
+                    is_active = True
+                    break
 
             if is_active:
                 active += 1
@@ -262,7 +276,7 @@ def kanban_flow():
                 prepare += 1
 
         results.append({
-            "date": D.strftime("%Y-%m-%d"),
+            "bucket": B["label"],
             "prepare": prepare,
             "active": active,
             "done": done
