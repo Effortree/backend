@@ -1,41 +1,52 @@
 # tutor_agent.py
+
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-# 1) LLM with max output length
+
+# 1) LLM (less restrictive, more stable)
 llm = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash",
-    temperature=0.2,
-    max_output_tokens=150  # <-- limit AI response length
+    temperature=0.3,
+    max_output_tokens=300
 )
 
-# 2) Prompt
+
+# 2) Prompt (SAFE structure)
 tutor_prompt = ChatPromptTemplate.from_messages([
-    ("system",
-     "You are a helpful, friendly AI tutor. "
-     "Explain clearly and concisely. "
-     "Use simple examples if helpful. "
-     "Keep your answer under 150 words."),
-    ("system", "Conversation so far:\n{history}"),
+    (
+        "system",
+        "You are a helpful and friendly AI tutor. "
+        "Explain concepts clearly and concisely using simple examples. "
+        "If the question is unclear or missing information, ask one short clarifying question. "
+        "Do NOT refuse unless the request is truly impossible."
+    ),
+    ("human", "{history}"),
     ("human", "{message}")
 ])
+
 
 # 3) Chain
 tutor_chain = tutor_prompt | llm | StrOutputParser()
 
+
 # 4) Public function
 def run_tutor(message: str, history: str) -> str:
+    if not history or not history.strip():
+        history = "No prior conversation."
+
     response = tutor_chain.invoke({
         "message": message,
         "history": history
     })
-    # Optional extra truncation if needed
-    return response[:500]  # max 500 characters
+
+    return response.strip()
+
 
 def build_history(messages, limit=6, max_chars=1000):
     """
-    messages: list of {role, content}
+    messages: list of dicts -> {role: 'user'|'assistant', content: str}
     limit: how many recent messages to include
     max_chars: max total characters in history
     """
@@ -46,9 +57,9 @@ def build_history(messages, limit=6, max_chars=1000):
     for m in recent:
         role = "User" if m["role"] == "user" else "Assistant"
         line = f"{role}: {m['content']}"
-        total_chars += len(line)
-        if total_chars > max_chars:
+        if total_chars + len(line) > max_chars:
             break
         history_lines.append(line)
+        total_chars += len(line)
 
     return "\n".join(history_lines)
