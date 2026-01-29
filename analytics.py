@@ -176,6 +176,24 @@ def streak():
 
     return jsonify({"streak_days": streak})
 
+def parse_iso_date(date_str: str):
+    """
+    Safely parse a date from ISO string.
+    Accepts 'YYYY-MM-DD' or 'YYYY-MM-DDTHH:MM:SS.sssZ' formats.
+    Returns a datetime.date object or None if invalid.
+    """
+    if not date_str:
+        return None
+    try:
+        # Try full ISO with timezone
+        return datetime.fromisoformat(date_str.replace("Z", "+00:00")).date()
+    except ValueError:
+        try:
+            # Fallback to just date part
+            return datetime.strptime(date_str[:10], "%Y-%m-%d").date()
+        except ValueError:
+            return None
+        
 # 5) KANBAN SNAPSHOT API
 @analytics_bp.route("/kanban", methods=["GET"])
 def kanban_flow():
@@ -187,7 +205,7 @@ def kanban_flow():
     # End date
     # ------------------
     if end_date_str:
-        end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+        end_date = parse_iso_date(end_date_str)
     else:
         end_date = datetime.utcnow().date()
 
@@ -199,22 +217,14 @@ def kanban_flow():
     if mode == "daily":
         for i in range(9, -1, -1):
             d = end_date - timedelta(days=i)
-            buckets.append({
-                "label": d.strftime("%Y-%m-%d"),
-                "start": d,
-                "end": d
-            })
+            buckets.append({"label": d.strftime("%Y-%m-%d"), "start": d, "end": d})
 
     elif mode == "weekly":
         week_end = end_date - timedelta(days=end_date.weekday()) + timedelta(days=6)
         for i in range(9, -1, -1):
             end = week_end - timedelta(weeks=i)
             start = end - timedelta(days=6)
-            buckets.append({
-                "label": end.strftime("%G-W%V"),
-                "start": start,
-                "end": end
-            })
+            buckets.append({"label": end.strftime("%G-W%V"), "start": start, "end": end})
 
     elif mode == "monthly":
         month_end = end_date.replace(day=1)
@@ -223,11 +233,7 @@ def kanban_flow():
             start = d.replace(day=1)
             next_month = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
             end = next_month - timedelta(days=1)
-            buckets.append({
-                "label": start.strftime("%Y-%m"),
-                "start": start,
-                "end": end
-            })
+            buckets.append({"label": start.strftime("%Y-%m"), "start": start, "end": end})
 
     else:
         return jsonify({"error": "Invalid mode"}), 400
@@ -242,31 +248,21 @@ def kanban_flow():
         prepare = active = done = 0
 
         for q in quests:
-            created_str = q["created_at"]
-            try:
-                created = datetime.strptime(created_str, "%Y-%m-%dT%H:%M:%S.%fZ").date()
-            except ValueError:
-                created = datetime.strptime(created_str, "%Y-%m-%d").date()
-
-            if created > B["end"]:
+            created = parse_iso_date(q.get("created_at"))
+            if not created or created > B["end"]:
                 continue
 
             # ---- DONE ----
-            updated_str = q.get("updated_at")
-            if q.get("status") == "done" and updated_str:
-                updated = datetime.strptime(updated_str[:10], "%Y-%m-%d").date()
-                if updated <= B["end"]:
-                    done += 1
-                    continue
+            updated = parse_iso_date(q.get("updated_at"))
+            if q.get("status") == "done" and updated and updated <= B["end"]:
+                done += 1
+                continue
 
             # ---- ACTIVE ----
             is_active = False
             for log in q.get("spent_logs", []):
-                log_date = datetime.strptime(log["spent_at"][:10], "%Y-%m-%d").date()
-                if (
-                    log["spent_minutes"] > 0
-                    and B["start"] <= log_date <= B["end"]
-                ):
+                log_date = parse_iso_date(log.get("spent_at"))
+                if log_date and log.get("spent_minutes", 0) > 0 and B["start"] <= log_date <= B["end"]:
                     is_active = True
                     break
 
@@ -275,17 +271,9 @@ def kanban_flow():
             else:
                 prepare += 1
 
-        results.append({
-            "bucket": B["label"],
-            "prepare": prepare,
-            "active": active,
-            "done": done
-        })
+        results.append({"bucket": B["label"], "prepare": prepare, "active": active, "done": done})
 
-    return jsonify({
-        "mode": mode,
-        "buckets": results
-    })
+    return jsonify({"mode": mode, "buckets": results})
 
 @analytics_bp.route("/daily-actual-308", methods=["GET"])
 def actual_timeseries_308():
